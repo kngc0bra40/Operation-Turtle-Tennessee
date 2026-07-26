@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+'use strict';
+
+/* Fixture-only validation for the stable baseline. It never reads browser storage. */
+const fs=require('fs');
+const path=require('path');
+const vm=require('vm');
+const root=path.resolve(__dirname,'..');
+const read=file=>fs.readFileSync(path.join(root,file),'utf8');
+const app=read('app.js');
+const p0=read('p0-regression-checks.js');
+const planningSource=read('planning.js');
+const precisionSource=read('precision.js');
+const integritySource=read('integrity.js');
+const elevationSource=read('elevation.js');
+const html=read('index.html');
+const results=[];
+const add=(name,result)=>{const passed=Boolean(result?.passed);results.push({name,passed,count:Object.keys(result?.checks||{}).length,checks:result?.checks||{}});if(!passed)process.exitCode=1;};
+const makeDocument=()=>({getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener:()=>{},createElement:()=>({}),body:{}});
+
+const sourceContext={window:{}};
+vm.createContext(sourceContext);
+vm.runInContext(p0,sourceContext);
+add('P0 data preservation',sourceContext.window.OTP0RegressionChecks.run());
+add('Planning undo and redo isolation',sourceContext.window.OTPlanningStabilityRegressionChecks.run());
+add('Stability source guards',sourceContext.window.OTStabilitySourceChecks.runSources(app,planningSource,html));
+add('Cleanup source guards',sourceContext.window.OTCleanupRegressionChecks.runSource(app));
+
+const metadataContext={window:{addEventListener:()=>{}},document:makeDocument(),URL,console,structuredClone,performance:{now:()=>0},setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},alert:()=>{},confirm:()=>true};
+metadataContext.window.window=metadataContext.window;
+vm.createContext(metadataContext);
+const metadataSlice=app.slice(app.indexOf('function textValue'),app.indexOf('const map=L.map'));
+const coordinateValidator=app.match(/function validUsCoordinate\(lat,lng\)\{[^\n]+/)[0];
+vm.runInContext(`${metadataSlice}\n${coordinateValidator}\nwindow.OTPropertyMetadata={normalizeParcel,normalizePhotos,normalizeParcelGeometry,locationPriority,isUserConfirmedLocation,canApplyLocation};`,metadataContext);
+vm.runInContext(precisionSource,metadataContext);
+vm.runInContext(planningSource,metadataContext);
+vm.runInContext(p0,metadataContext);
+add('Property metadata and cost',metadataContext.window.OTPropertyMetadataRegressionChecks.run());
+add('Foundation save and load fixtures',metadataContext.window.OTFoundationRegressionChecks.run());
+
+const locationContext={window:{},document:makeDocument(),console,structuredClone,URL,setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},navigator:{},performance:{now:()=>0}};
+locationContext.window.window=locationContext.window;
+vm.createContext(locationContext);
+vm.runInContext(integritySource,locationContext);
+vm.runInContext(p0,locationContext);
+add('Location and manual-pin protection',locationContext.window.OTLocationRegressionChecks.run(locationContext.window.OTIntegrity));
+
+const terrainContext={window:{addEventListener:()=>{},removeEventListener:()=>{}},document:makeDocument(),console,structuredClone,URL,setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},navigator:{},performance:{now:()=>0},fetch:async()=>{throw new Error('Offline fixture environment');}};
+terrainContext.window.window=terrainContext.window;
+vm.createContext(terrainContext);
+vm.runInContext(elevationSource,terrainContext);
+vm.runInContext(planningSource,terrainContext);
+vm.runInContext(p0,terrainContext);
+add('Planning feature isolation',terrainContext.window.OTPlanningRegressionChecks.run(terrainContext.window.OTPlanning));
+
+const importContext={window:{},URL};
+vm.createContext(importContext);
+const importSlice=app.slice(app.indexOf('function detectListingSource'),app.indexOf('async function fetchListingPage'));
+vm.runInContext(`${importSlice}\nwindow.OTImport={canonicalListingInput,parseListingText,extractTennesseeAddress};`,importContext);
+vm.runInContext(p0,importContext);
+add('Listing import parser',importContext.window.OTImportRegressionChecks.run(importContext.window.OTImport));
+
+const scoringContext={window:{OT_SEED:[{id:'OT-001'}]},document:{getElementById:()=>null},Math,Number,Object,Array,JSON};
+scoringContext.clampScore=value=>Math.max(0,Math.min(100,Number(value)||0));
+scoringContext.developmentAdjustments=()=>({buildability:0,value:0});
+scoringContext.infrastructureScore=()=>50;
+scoringContext.terrainBuildabilityScore=()=>null;
+scoringContext.scoreByDistance=()=>50;
+scoringContext.milesBetween=()=>20;
+scoringContext.MAJOR_AIRPORTS=[];
+scoringContext.estimatedDevelopmentTotal=()=>0;
+scoringContext.normalizeRecord=value=>value;
+vm.createContext(scoringContext);
+const scoringSlice=app.slice(app.indexOf('function canonicalPropertyType'),app.indexOf('function organizeDossier'));
+vm.runInContext(`const SCORE_WEIGHTS={Privacy:14,Infrastructure:14,Buildability:16,Shopping:10,Airport:14,Recreation:7,Value:10,InvestmentFlexibility:15}; const seed=window.OT_SEED;\n${scoringSlice}`,scoringContext);
+add('Scoring bounds and weights',scoringContext.window.OTScoring.runRegressionChecks());
+
+(async()=>{
+  add('Elevation fixtures and cache',await terrainContext.window.OTElevationRegressionChecks.run());
+  for(const result of results)console.log(`${result.passed?'PASS':'FAIL'} ${result.name} (${result.count} checks)`);
+  const failed=results.filter(result=>!result.passed);
+  if(failed.length){console.error(`Failed suites: ${failed.map(result=>result.name).join(', ')}`);process.exitCode=1;}
+})();

@@ -1,0 +1,27 @@
+name: Baseline validation
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Syntax and regression checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          find . -name '*.js' -not -path './.git/*' -not -path './.tools/*' -print0 | xargs -0 -n1 node --check
+      - name: Run fixture regression suite
+        run: node scripts/verify-baseline.js
