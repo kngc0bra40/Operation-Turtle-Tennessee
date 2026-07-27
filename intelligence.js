@@ -237,7 +237,6 @@
   }
   function dataReview(record={}){
     const profile=profileFor(record),audit=auditImportFields(record),issues=[],add=(code,found,why,category,action='scorecard')=>{if(!issues.some(item=>item.code===code))issues.push({code,found,why,category,action});};
-    audit.unmapped.forEach(entry=>add(`unmapped:${entry.field}`,`${entry.label} was imported but is not mapped to scoring.`, 'It may affect property evaluation and should be reviewed before relying on the score.',entry.categories.join(' / ')||'Review needed'));
     const type=String(record.propertyType||'').toLowerCase(),hasHome=Boolean(Number(record.beds)||Number(record.sqft)||profile.existingResidencePresent===true);
     if(/raw|vacant|land/.test(type)&&hasHome)add('type-conflict','Property type says vacant/raw land, but home facts are present.','Home readiness and infrastructure scoring may be inconsistent.','Existing Home & Infrastructure','property');
     if(/home|livable|residence|cabin/.test(type)&&profile.existingResidencePresent===null)add('home-unclear','A home-type property has no confirmed residence status.','Immediate livability should not be assumed.','Existing Home & Infrastructure');
@@ -250,7 +249,9 @@
     if(Number(record.acres)>0&&Number.isFinite(alternateAcres)&&alternateAcres>0&&Math.abs(Number(record.acres)-alternateAcres)>.2)add('acreage-conflict','Saved acreage differs from another imported acreage value.','Acreage affects land, recreation, price-per-acre, and build-site scoring.','Second-Home Build Potential','property');
     if(!Array.isArray(record.destinations)||!record.destinations.some(item=>Number.isFinite(Number(item?.routeMinutes??item?.durationMinutes??item?.minutes))))add('routes-missing','Verified routed access is missing.','Location convenience uses routed travel times only.','Location & Convenience','routes');
     if(!meaningfulValue(record.developmentCost)&&!meaningfulValue(record.sitePlanning?.costEstimates))add('costs-missing','Site-development cost information is missing.','Unknown driveway, utility, well, septic, and rehabilitation work reduces cost confidence.','Cost, Risk & Personal Fit','property');
-    return {count:issues.length,issues:issues.slice(0,8),audit};
+    const priority=code=>code==='acreage-conflict'?0:code==='type-conflict'?1:code==='home-unclear'?2:code==='utilities-unclear'?3:code==='second-site-unknown'?4:code==='water-unverified'?5:6;
+    issues.sort((a,b)=>priority(a.code)-priority(b.code));
+    return {count:issues.length,issues:issues.slice(0,3),audit};
   }
 
   function ruleExistingHomeInfrastructure(record){
@@ -602,8 +603,8 @@
       ,exceptionalVacantCanOutrankPoorImproved:exceptionalRawScore.total>poorImprovedScore.total
       ,vacantComparisonExplanationIsDerived:compareRankExplanation(exceptionalRaw,poorImproved).length>0
       ,confirmedVacancyHasHighInfrastructureConfidence:confirmedVacantScore.categories.find(category=>category.id==='existingHomeInfrastructure').confidence==='High'&&confirmedVacantScore.categories.find(category=>category.id==='existingHomeInfrastructure').score<3
-      ,importFieldMappingFlagsMeaningfulUnmapped:importAudit.unmapped.some(entry=>entry.field==='yearBuilt')&&importAudit.unmapped.some(entry=>entry.field==='listingDescription')&&importReview.issues.some(item=>item.code==='unmapped:yearBuilt')
-      ,reviewFlagsDeduplicateAndDetectConflicts:new Set(importReview.issues.map(item=>item.code)).size===importReview.count&&conflictReview.issues.some(item=>item.code==='acreage-conflict')
+      ,importRegistryKeepsTechnicalGapsOutOfUserReview:importAudit.unmapped.some(entry=>entry.field==='yearBuilt')&&importAudit.unmapped.some(entry=>entry.field==='listingDescription')&&!importReview.issues.some(item=>item.code.startsWith('unmapped:'))
+      ,reviewFlagsDeduplicateAndDetectConflicts:new Set(importReview.issues.map(item=>item.code)).size===importReview.issues.length&&conflictReview.issues.some(item=>item.code==='acreage-conflict')
       ,manualOverrideKeepsAutomaticConfidence:currentManual.categories.existingHomeInfrastructure.confidence===calculateSimplifiedScorecard(ideal).categories.existingHomeInfrastructure.confidence
       ,reviewIsRuntimeOnly:!Object.keys(imported).some(key=>/review/i.test(key))&&JSON.stringify(imported).length<6000
     };
