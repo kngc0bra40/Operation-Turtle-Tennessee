@@ -7,7 +7,7 @@
 <meta name="description" content="Operation Turtle — East Tennessee property decision system">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Operation Turtle 4.0 Preview</title>
+<title>Operation Turtle 4.1 Preview</title>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="styles.css">
@@ -55,10 +55,11 @@
   </section>
   <section id="listView" class="view">
     <div class="toolbar"><input id="search" type="search" placeholder="Search properties…"><select id="statusFilter"><option value="">All statuses</option><option>Saved</option><option>Shortlisted</option><option>Rejected</option></select></div>
+    <details class="intelligence-filters" id="intelligenceFilters"><summary>Property Intelligence filters</summary><div class="intelligence-filter-grid"><label>Minimum acres<input id="minAcresFilter" type="number" min="0" step="0.1" inputmode="decimal"></label><label>Minimum Turtle Score<input id="minTurtleFilter" type="number" min="0" max="100" step="1" inputmode="numeric"></label><label>Favorite<select id="favoriteFilter"><option value="">All properties</option><option value="favorite">Favorites only</option></select></label><label>County<input id="countyFilter" type="search" placeholder="Monroe"></label><label>Minimum price<input id="minPriceFilter" type="number" min="0" step="1000" inputmode="numeric"></label><label>Maximum price<input id="maxPriceFilter" type="number" min="0" step="1000" inputmode="numeric"></label><label>Maximum price / acre<input id="maxPricePerAcreFilter" type="number" min="0" step="100" inputmode="numeric"></label></div></details>
     <div id="propertyList" class="property-list"></div>
   </section>
   <section id="compareView" class="view">
-    <div class="compare-head"><div><h2>Property comparison</h2><p>Scores update as records evolve.</p></div></div>
+    <div class="compare-head"><div><h2>Property comparison</h2><p>Compare existing property scores and the optional Turtle Scorecard.</p></div><label class="compare-sort">Sort<select id="compareSort"><option value="turtleScore">Turtle Score</option><option value="price">Price</option><option value="pricePerAcre">Price / acre</option><option value="acreage">Acreage</option><option value="airportDistance">Airport distance</option><option value="favorite">Favorite</option><option value="status">Status</option></select></label></div>
     <div id="compareTable" class="compare-cards"></div>
   </section>
   <section id="addView" class="view">
@@ -104,6 +105,14 @@
   <section class="settings-section"><h3>Version information</h3><p id="versionInfo" class="settings-copy"></p></section>
 </aside>
 <aside id="propertyLossAlert" class="property-loss-alert" hidden><strong>Possible property data loss detected</strong><span id="propertyLossText"></span><div><button id="reviewLossRecoveryBtn" class="secondary" type="button">Review Recovery</button><button id="restoreLatestSafeBtn" class="secondary outline" type="button">Restore Latest Safe Snapshot</button><button id="continueWithoutRestoreBtn" class="secondary outline" type="button">Continue Without Restoring</button></div></aside>
+<aside id="dashboardPanel" class="settings-panel intelligence-panel" hidden aria-label="Property dashboard">
+  <div class="settings-head"><div><h2>Property Dashboard</h2><p>Lightweight portfolio overview from saved property facts and scorecards.</p></div><button id="closeDashboardBtn" class="form-close" type="button" aria-label="Close dashboard">Close</button></div>
+  <section class="settings-section"><div id="dashboardMetrics" class="dashboard-metrics" aria-live="polite"></div></section>
+</aside>
+<aside id="scorecardPanel" class="settings-panel intelligence-panel" hidden aria-label="Property Scorecard">
+  <div class="settings-head"><div><h2>Property Scorecard</h2><p id="scorecardPropertyLabel">Rate this property from 0 to 10. Blank scores remain unrated.</p></div><button id="closeScorecardBtn" class="form-close" type="button" aria-label="Close Property Scorecard">Close</button></div>
+  <section class="settings-section"><div id="scorecardSummary" class="scorecard-summary" aria-live="polite"></div><div id="scorecardEditor" class="scorecard-editor"></div><div id="scorecardMessage" class="form-message" aria-live="polite"></div><div class="form-actions"><button id="cancelScorecardBtn" class="secondary outline" type="button">Cancel</button><button id="saveScorecardBtn" class="secondary" type="button">Save scorecard</button></div></section>
+</aside>
 <aside id="sitePlanningPanel" class="site-planning-panel" hidden aria-label="Site Planning workspace">
   <div class="settings-head"><div><h2>Site Planning</h2><p id="sitePlanningProperty">Property-specific satellite planning workspace.</p></div><button id="closeSitePlanningBtn" class="form-close" type="button" aria-label="Close Site Planning">✕</button></div>
   <div class="site-planning-body">
@@ -136,6 +145,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="properties.js"></script>
 <script>window.OT_CONFIG={developerMode:false};</script>
+<script src="intelligence.js" defer></script>
 <script src="diagnostics.js" defer></script>
 <script src="app.js" defer></script>
 <script src="precision.js" defer></script>

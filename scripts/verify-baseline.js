@@ -13,6 +13,7 @@ const planningSource=read('planning.js');
 const precisionSource=read('precision.js');
 const integritySource=read('integrity.js');
 const elevationSource=read('elevation.js');
+const intelligenceSource=read('intelligence.js');
 const html=read('index.html');
 const results=[];
 const add=(name,result)=>{const passed=Boolean(result?.passed);results.push({name,passed,count:Object.keys(result?.checks||{}).length,checks:result?.checks||{}});if(!passed)process.exitCode=1;};
@@ -25,6 +26,13 @@ add('P0 data preservation',sourceContext.window.OTP0RegressionChecks.run());
 add('Planning undo and redo isolation',sourceContext.window.OTPlanningStabilityRegressionChecks.run());
 add('Stability source guards',sourceContext.window.OTStabilitySourceChecks.runSources(app,planningSource,html));
 add('Cleanup source guards',sourceContext.window.OTCleanupRegressionChecks.runSource(app));
+
+const intelligenceContext={window:{},Math,Number,Object,Array,JSON,Date};
+intelligenceContext.window.window=intelligenceContext.window;
+vm.createContext(intelligenceContext);
+vm.runInContext(intelligenceSource,intelligenceContext);
+add('Property Intelligence scorecard, filters, and dashboard',intelligenceContext.window.OTPropertyIntelligenceRegressionChecks.run());
+add('Property Intelligence storage and UI wiring',{passed:["const PROPERTY_INTELLIGENCE_KEY='ot-property-intelligence-v1'","PROPERTY_INTELLIGENCE_KEY,'ot-version'",'rebindPropertyIntelligenceListControls','appendPropertyIntelligence','openPropertyScorecard'].every(token=>app.includes(token)),checks:{separateOptionalState:app.includes("const PROPERTY_INTELLIGENCE_KEY='ot-property-intelligence-v1'"),snapshotsIncludeIntelligenceState:app.includes("PROPERTY_INTELLIGENCE_KEY,'ot-version'"),listAndCompareControlsRebound:app.includes('rebindPropertyIntelligenceListControls'),dossierScorecardAvailable:app.includes('appendPropertyIntelligence')&&app.includes('openPropertyScorecard')}});
 
 const metadataContext={window:{addEventListener:()=>{}},document:makeDocument(),URL,console,structuredClone,performance:{now:()=>0},setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},alert:()=>{},confirm:()=>true};
 metadataContext.window.window=metadataContext.window;
