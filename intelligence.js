@@ -1,7 +1,9 @@
 /* Operation Turtle Property Intelligence configuration and pure helpers.
-   The six-category score is read-only until the app explicitly persists it. */
+   The six-category score is calculated from saved facts until the app explicitly persists a scorecard. */
 (function(){
   'use strict';
+
+  // The original, detailed 16-category scorecard remains available under Advanced scoring details.
   const DETAILED_SCORECARD_CATEGORIES=[
     {id:'privacy',label:'Privacy',weight:10,strength:'Excellent privacy'},
     {id:'mountainViews',label:'Mountain Views',weight:6,strength:'Strong mountain views'},
@@ -20,56 +22,506 @@
     {id:'internetAvailability',label:'Internet Availability',weight:7,strength:'Internet availability is promising'},
     {id:'overallFeeling',label:'Overall Feeling',weight:6,strength:'Strong overall fit'}
   ];
+
+  // This is the single authoritative six-category model for the Turtle Score.
   const SIMPLIFIED_SCORECARD_CATEGORIES=[
-    {id:'landBuildability',label:'Land & Buildability',weight:25},
-    {id:'privacySetting',label:'Privacy & Setting',weight:20},
-    {id:'recreationUsability',label:'Recreation & Usability',weight:15},
+    {id:'existingHomeInfrastructure',label:'Existing Home & Infrastructure',weight:25},
+    {id:'secondHomeBuildPotential',label:'Second-Home Build Potential',weight:20},
+    {id:'landCharacterPrivacy',label:'Land Character & Privacy',weight:15},
+    {id:'recreationWaterFeatures',label:'Recreation & Water Features',weight:15},
     {id:'locationConvenience',label:'Location & Convenience',weight:15},
-    {id:'developmentCostRisk',label:'Development Cost & Risk',weight:15},
-    {id:'overallPersonalFit',label:'Overall Personal Fit',weight:10}
+    {id:'costRiskPersonalFit',label:'Cost, Risk & Personal Fit',weight:10}
   ];
+  const LEGACY_CATEGORY_FALLBACK={
+    secondHomeBuildPotential:'landBuildability',
+    landCharacterPrivacy:'privacySetting',
+    recreationWaterFeatures:'recreationUsability',
+    locationConvenience:'locationConvenience',
+    costRiskPersonalFit:'developmentCostRisk'
+  };
+  const LEGACY_CATEGORY_IDS=['landBuildability','privacySetting','recreationUsability','locationConvenience','developmentCostRisk','overallPersonalFit'];
   const STATUS_OPTIONS=['Researching','Interested','Visit Planned','Visited','Offer Submitted','Under Contract','Purchased','Rejected','Archived'];
   const LEGACY_STATUS_MAP={Saved:'Researching',Shortlisted:'Interested',Rejected:'Rejected'};
-  const clampScore=value=>{if(value===''||value===null||value===undefined)return null;const number=Number(value);return Number.isFinite(number)?Math.max(0,Math.min(10,number)):null;};
+  const PROFILE_ENUMS={
+    residenceCondition:['unknown','livable','minor-work','major-rehabilitation','unknown-condition'],
+    electric:['unknown','verified','recorded','available','none'],
+    waterSource:['unknown','verified-well','public-water','verified-other','recorded','available','none'],
+    septicOrSewer:['unknown','verified','recorded','available','none'],
+    internet:['unknown','verified','recorded','available','none'],
+    driveway:['unknown','year-round','verified','recorded','limited','none'],
+    outbuildings:['unknown','garage','barn','workshop','multiple','none'],
+    additionalBuildSite:['unknown','identified','likely','none-identified','not-viable'],
+    additionalBuildSiteConfidence:['unknown','high','medium','low','not-viable'],
+    secondHomeAccess:['unknown','independent','shared-practical','difficult','not-feasible'],
+    utilityExtensionDifficulty:['unknown','low','moderate','high','extreme'],
+    multipleResidences:['unknown','permitted','likely','restricted','not-permitted'],
+    woodedOpenMix:['unknown','mixed','mostly-wooded','mostly-open','featureless'],
+    slopeCharacter:['unknown','mixed-moderate','recreational','steep-limiting','flat-open'],
+    waterFeatureType:['unknown','none','seasonal-drainage','creek','spring','pond','river','multiple'],
+    waterFeatureReliability:['unknown','verified-year-round','likely','seasonal','unverified'],
+    waterFloodRisk:['unknown','none-known','low','moderate','high']
+  };
+  const clampScore=value=>{
+    if(value===''||value===null||value===undefined)return null;
+    const number=Number(value);
+    return Number.isFinite(number)?Math.max(0,Math.min(10,number)):null;
+  };
   const unique=values=>[...new Set(values.filter(Boolean))];
-  const confidenceFor=(facts,unknowns=0)=>facts>=4?'High':facts>=2?'Medium':facts>=1?'Low':unknowns?'Not enough information':'Not enough information';
+  const confidenceFor=(facts,unknowns=0)=>facts>=5?'High':facts>=3?'Medium':facts>=1?'Low':unknowns?'Not enough information':'Not enough information';
+  const plainObject=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+  const enumValue=(value,options)=>options.includes(value)?value:'unknown';
+  const nullableBoolean=value=>value===true||value==='true'||value==='yes'?true:value===false||value==='false'||value==='no'?false:null;
   const scorecardEntry=value=>({score:clampScore(value?.score),notes:typeof value?.notes==='string'?value.notes:'',updatedAt:typeof value?.updatedAt==='string'?value.updatedAt:''});
-  function normalizeScorecard(value){const source=value&&typeof value==='object'?value:{},ratings={};DETAILED_SCORECARD_CATEGORIES.forEach(category=>{ratings[category.id]=scorecardEntry(source.ratings?.[category.id]??source[category.id]);});return {version:1,ratings};}
-  function scorecardHasValues(value){const card=normalizeScorecard(value);return DETAILED_SCORECARD_CATEGORIES.some(category=>card.ratings[category.id].score!==null||card.ratings[category.id].notes||card.ratings[category.id].updatedAt);}
-  function detailedTurtleScore(record={}){const scorecard=normalizeScorecard(record.propertyIntelligence?.scorecard||record.scorecard);let total=0,ratedWeight=0,ratedCount=0;const categories=DETAILED_SCORECARD_CATEGORIES.map(category=>{const rating=scorecard.ratings[category.id],contribution=rating.score===null?0:(rating.score/10)*category.weight;if(rating.score!==null){ratedWeight+=category.weight;ratedCount+=1;}total+=contribution;return {...category,score:rating.score,notes:rating.notes,updatedAt:rating.updatedAt,contribution:Number(contribution.toFixed(2))};});return {total:Number(Math.max(0,Math.min(100,total)).toFixed(2)),percentage:Number(Math.max(0,Math.min(100,total)).toFixed(2)),ratedCount,ratedWeight,categories,scorecard};}
-  const textFacts=record=>[record.notes,...(Array.isArray(record.pros)?record.pros:[]),...(Array.isArray(record.cons)?record.cons:[]),record.parcel?.notes,record.locationVerification?.source,record.propertyType,...Object.values(record.investment||{}),...Object.values(record.site||{})].filter(value=>typeof value==='string').join(' ').toLowerCase();
+
+  function normalizeScorecard(value){
+    const source=plainObject(value),ratings={};
+    DETAILED_SCORECARD_CATEGORIES.forEach(category=>{ratings[category.id]=scorecardEntry(source.ratings?.[category.id]??source[category.id]);});
+    return {version:1,ratings};
+  }
+  function scorecardHasValues(value){
+    const card=normalizeScorecard(value);
+    return DETAILED_SCORECARD_CATEGORIES.some(category=>{
+      const entry=card.ratings[category.id];
+      return entry.score!==null||entry.notes||entry.updatedAt;
+    });
+  }
+  function detailedTurtleScore(record={}){
+    const scorecard=normalizeScorecard(record.propertyIntelligence?.scorecard||record.scorecard);
+    let total=0,ratedWeight=0,ratedCount=0;
+    const categories=DETAILED_SCORECARD_CATEGORIES.map(category=>{
+      const rating=scorecard.ratings[category.id];
+      const contribution=rating.score===null?0:(rating.score/10)*category.weight;
+      if(rating.score!==null){ratedWeight+=category.weight;ratedCount+=1;}
+      total+=contribution;
+      return {...category,score:rating.score,notes:rating.notes,updatedAt:rating.updatedAt,contribution:Number(contribution.toFixed(2))};
+    });
+    const score=Number(Math.max(0,Math.min(100,total)).toFixed(2));
+    return {total:score,percentage:score,ratedCount,ratedWeight,categories,scorecard};
+  }
+
+  // Profile facts are optional and live beside the existing intelligence data. Unknown future fields are retained.
+  function normalizePropertyProfile(value){
+    const source=plainObject(value),profile={...source,version:1};
+    profile.existingResidencePresent=nullableBoolean(source.existingResidencePresent);
+    profile.existingResidenceLivable=nullableBoolean(source.existingResidenceLivable);
+    const sqft=Number(source.residenceSquareFootage);
+    profile.residenceSquareFootage=Number.isFinite(sqft)&&sqft>0?sqft:null;
+    Object.entries(PROFILE_ENUMS).forEach(([key,options])=>{profile[key]=enumValue(String(source[key]??'unknown'),options);});
+    return profile;
+  }
+  const profileFor=record=>normalizePropertyProfile(record.propertyIntelligence?.propertyProfile||record.propertyProfile);
+  const textFacts=record=>[
+    record.notes,...(Array.isArray(record.pros)?record.pros:[]),...(Array.isArray(record.cons)?record.cons:[]),
+    record.parcel?.notes,record.locationVerification?.source,record.propertyType,
+    ...Object.values(plainObject(record.investment)),...Object.values(plainObject(record.site)),
+    ...Object.values(plainObject(record.development)),...Object.values(plainObject(record.infrastructure))
+  ].filter(value=>typeof value==='string').join(' ').toLowerCase();
   const includesAny=(text,terms)=>terms.some(term=>text.includes(term));
-  const developmentValue=(record,key)=>{const siteKeys={driveway:['Driveway'],homesite:['Homesite','Home Site','Pad'],utilities:['Electric','Utilities','Water','Well','Septic']};const values=[record.development?.[key],record.infrastructure?.[key],...(siteKeys[key]||[]).map(siteKey=>record.site?.[siteKey]),key==='utilities'?record.investment?.utilities:null].filter(value=>value!==undefined&&value!==null&&value!=='');return values.length?values.map(value=>String(value)).join(' ').toLowerCase():'unknown'};
-  const existingStructureRecorded=record=>Boolean(Number(record.beds)||Number(record.sqft)||/existing-(livable|home|cabin|structure)|cabin|dwelling|residence|home needing renovation|barn|shop/.test(`${record.propertyType||''} ${textFacts(record)}`));
+  const existingStructureRecorded=record=>Boolean(Number(record.beds)||Number(record.sqft)||Number(record.propertyIntelligence?.propertyProfile?.residenceSquareFootage)||/existing-(livable|home|cabin|structure)|cabin|dwelling|residence|home needing renovation|barn|shop/.test(`${record.propertyType||''} ${textFacts(record)}`));
   const practicalHomesiteRecorded=(value,text)=>/home|pad|identified|prepared|build site/.test(value)||includesAny(text,['prepared pad','building pad','build site','homesite']);
-  const utilityAccessRecorded=value=>/onsite|roadside|existing|fully-onsite|available/.test(value);
-  const AUTO_SCORE_FACT_MAPPING={landBuildability:['acreage','saved buildability rating','driveway and building-pad facts','utilities','parcel geometry','terrain, flood, soil, septic, or perc notes'],privacySetting:['acreage','saved privacy rating','privacy, wooded, view, road, and neighbor notes'],recreationUsability:['acreage','saved recreation rating','trails, hunting, woods, water, and usability notes'],locationConvenience:['verified routed destination minutes','explicitly saved airport or shopping access ratings'],developmentCostRisk:['driveway, pad, utility, well, septic, and development estimates','terrain and access risks'],overallPersonalFit:['detailed Overall Feeling rating','visit observations and personal pros or concerns']};
-  const explicitAccessRatings=record=>{const values=[];for(const [label,key] of [['Airport','Airport'],['Shopping','Shopping']]){const raw=Number(record.scores?.[key]);if(Number.isFinite(raw)&&raw>=0&&raw<=100)values.push({label,score:raw/10});}return values};
-  const acreageBase=acres=>{if(!Number.isFinite(acres)||acres<=0)return null;if(acres<10)return 2.5;if(acres<20)return 5;if(acres<30)return 6.7;if(acres<=50)return 8;return 8.3;};
-  const routeMinutes=(record,matcher)=>{const destinations=Array.isArray(record.destinations)?record.destinations:[];const item=destinations.find(candidate=>matcher.test(String(candidate?.name||candidate?.label||candidate?.type||'')));if(!item)return null;const value=Number(item.routeMinutes??item.durationMinutes??item.drivingMinutes??item.minutes??item.travelMinutes);return Number.isFinite(value)&&value>=0?value:null;};
-  const timeScore=(minutes,type)=>{if(!Number.isFinite(minutes))return null;if(type==='airport'){if(minutes<=45)return 10;if(minutes<=60)return 8.5;if(minutes<=75)return 7;if(minutes<=90)return 4.5;return 2.5;}if(minutes<=20)return 10;if(minutes<=35)return 8;if(minutes<=50)return 6;if(minutes<=70)return 4;return 2.5;};
-  function ruleLandBuildability(record){const acres=Number(record.acres),text=textFacts(record),reasons=[],warnings=[];let score=acreageBase(acres),facts=score===null?0:1;if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Acreage and practical build-site information are not yet recorded.']};if(acres<10)warnings.push('Under the 10-acre minimum target.');else if(acres>=30&&acres<=50)reasons.push('Acreage is in the preferred 30–50 acre range.');else if(acres>50)reasons.push('Acreage exceeds the preferred range, pending usable-land verification.');const driveway=developmentValue(record,'driveway'),homesite=developmentValue(record,'homesite'),utilities=developmentValue(record,'utilities'),hasHomesite=practicalHomesiteRecorded(homesite,text);if(/existing|usable/.test(driveway)){score+=.8;facts++;reasons.push('Existing driveway is recorded.');}else if(/rough|none|washout|\$/.test(driveway)){score-=.7;facts++;warnings.push('Driveway work remains a concern.');}if(hasHomesite){score+=1;facts++;reasons.push(/pad|prepared/.test(`${homesite} ${text}`)?'Prepared building pad is recorded.':'A practical build site is recorded.');}else if(/steep/.test(homesite)){score-=1;facts++;warnings.push('No clear practical build site is recorded.');}if(utilityAccessRecorded(utilities)){score+=.7;facts++;reasons.push('Utility availability is recorded.');}else if(/extension|offgrid|tbd/.test(utilities)){score-=.7;facts++;warnings.push('Utility extension or off-grid service may be needed.');}if(existingStructureRecorded(record)){score+=.5;facts++;reasons.push('Existing structure supports immediate site use.');}if(includesAny(text,['rock','drainage','flood','steep slope','septic concern','access concern'])){score-=1;facts++;warnings.push('Known terrain, drainage, septic, or access concern needs review.');}if(!hasHomesite)warnings.push('Build-site, well, and septic details remain incomplete.');return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  function rulePrivacySetting(record){const acres=Number(record.acres),text=textFacts(record),reasons=[],warnings=[];let score=acreageBase(acres),facts=score===null?0:1;if(score===null&&!includesAny(text,['privacy','rural','wood','tree','view','mountain','secluded']))return {autoScore:null,confidence:'Not enough information',reasons,warnings:['No acreage or setting observations are recorded.']};if(score===null)score=5;const positives=['privacy','secluded','rural','wood','timber','tree cover','mountain view','view'];const negatives=['neighbor','nearby homes','road noise','traffic','visible from road'];if(includesAny(text,positives)){score+=1.2;facts++;reasons.push('Property notes describe privacy, wooded cover, rural setting, or views.');}if(includesAny(text,negatives)){score-=1.3;facts++;warnings.push('Notes identify a visibility, neighbor, or road-noise concern.');}if(acres>=30)reasons.push('Acreage supports separation from nearby uses.');if(!includesAny(text,[...positives,...negatives]))warnings.push('Road visibility, nearby homes, and tree cover still need field verification.');return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  function ruleRecreationUsability(record){const acres=Number(record.acres),text=textFacts(record),reasons=[],warnings=[];let score=null,facts=0;if(Number.isFinite(acres)&&acres>0){score=acres<10?3.5:acres<20?5:acres<30?6:7;facts++;reasons.push('Acreage provides a starting point for on-site recreation.');}const recreationTerms=['trail','atv','sxs','hunting','hike','shoot','woods','timber','creek','pond','water','open ground'];if(includesAny(text,recreationTerms)){score=(score??5)+1.5;facts++;reasons.push('Property notes identify recreation, trails, woods, or water potential.');}if(String(record.waterFeature||'').toLowerCase()!=='unknown'&&record.waterFeature){score=(score??5)+.7;facts++;reasons.push('A water feature is recorded.');}if(includesAny(text,['unusable','impassable','wet','flood'])){score=(score??5)-1;facts++;warnings.push('Some land may have limited recreational usability.');}if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['No acreage, recreation, or water information is recorded.']};if(facts<2)warnings.push('Trail, hunting, and usable-ground conditions need field verification.');return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  function ruleLocationConvenience(record){const entries=[['Airport',/airport/i,'airport'],["Lowe's",/lowe'?s/i,'service'],['Home Depot',/home depot/i,'service'],['Costco',/costco/i,'service'],['Grocery',/grocery|walmart|supermarket/i,'service'],['Hospital',/hospital/i,'service']],known=[];entries.forEach(([label,matcher,type])=>{const minutes=routeMinutes(record,matcher);if(minutes!==null)known.push({label,minutes,score:timeScore(minutes,type),type});});const savedRatings=explicitAccessRatings(record);if(!known.length&&!savedRatings.length)return {autoScore:null,confidence:'Not enough information',reasons:[],warnings:['No verified routed travel times or explicitly saved access ratings are recorded. Straight-line distances are not used for this score.']};const scored=[...known,...savedRatings],score=scored.reduce((total,item)=>total+item.score,0)/scored.length,reasons=[],warnings=[];const airport=known.find(item=>item.type==='airport');if(airport){if(airport.minutes<=45)reasons.push(`Airport routed time is ${airport.minutes} minutes.`);else if(airport.minutes<=75)reasons.push(`Airport routed time is ${airport.minutes} minutes and remains competitive.`);else warnings.push(`Airport routed time is ${airport.minutes} minutes.`);}if(known.some(item=>item.label==="Lowe's"))reasons.push("Lowe's has a property-specific routed time.");if(savedRatings.length)reasons.push(`Uses ${savedRatings.map(item=>item.label.toLowerCase()).join(' and ')} access rating${savedRatings.length===1?'':'s'} already saved with this property.`);const missing=entries.filter(([label,matcher])=>routeMinutes(record,matcher)===null).map(([label])=>label);if(missing.length)warnings.push(`Missing routed data: ${missing.join(', ')}.`);return {autoScore:clampScore(score),confidence:confidenceFor(known.length+savedRatings.length,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  function ruleDevelopmentCostRisk(record){const text=textFacts(record),reasons=[],warnings=[];let score=null,facts=0;const driveway=developmentValue(record,'driveway'),homesite=developmentValue(record,'homesite'),utilities=developmentValue(record,'utilities'),hasHomesite=practicalHomesiteRecorded(homesite,text);if(/existing|usable/.test(driveway)){score=(score??5)+1;facts++;reasons.push('Existing driveway reduces initial access work.');}if(hasHomesite){score=(score??5)+1;facts++;reasons.push('Existing home, pad, or identified site reduces development uncertainty.');}if(utilityAccessRecorded(utilities)){score=(score??5)+.8;facts++;reasons.push('Known utility access reduces extension uncertainty.');}if(existingStructureRecorded(record)){score=(score??5)+.7;facts++;reasons.push('Existing structure may reduce immediate development needs.');}const costs=record.developmentCost&&typeof record.developmentCost==='object'?record.developmentCost:{},siteCosts=record.site&&typeof record.site==='object'?record.site:{};const knownCost=[...Object.entries(costs),...Object.entries(siteCosts)].some(([key,value])=>/total|estimate|expected|low|high|driveway|electric|well|septic/i.test(key)&&/\$|\d/.test(String(value)));if(knownCost){score=(score??5);facts++;reasons.push('Development-cost inputs are recorded.');}if(includesAny(text,['rock','drainage','flood','bridge','retaining','soil','septic concern','permit'])){score=(score??5)-1.4;facts++;warnings.push('Known site-cost or permitting risk needs review.');}if(/rough|none|extension|offgrid|steep|tbd|washout/.test(`${driveway} ${homesite} ${utilities}`)){score=(score??5)-.7;facts++;warnings.push('Access, site, or utility work may be material.');}if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Driveway, site, utility, and development-cost information is not yet recorded.']};if(!knownCost)warnings.push('Unknown development items are not treated as zero cost.');return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  function ruleOverallPersonalFit(record){const text=textFacts(record),reasons=[],warnings=[];let score=null,facts=0;const overallFeeling=clampScore(record.propertyIntelligence?.scorecard?.ratings?.overallFeeling?.score??record.scorecard?.ratings?.overallFeeling?.score);if(overallFeeling!==null){score=overallFeeling;facts++;reasons.push('Saved Overall Feeling rating is used as the personal-fit baseline.');}const visitStatus=String(record.visitStatus||'').trim(),visited=(Boolean(visitStatus)&&!/^not visited$/i.test(visitStatus))||displayStatus(record.status)==='Visited'||/drive-?by|walked|visited|site visit/.test(`${visitStatus} ${record.status||''} ${text}`);if(visited){score=score??6;facts++;reasons.push('The property has been visited or personally evaluated.');}const positives=Array.isArray(record.pros)?record.pros.filter(Boolean).length:0,negatives=Array.isArray(record.cons)?record.cons.filter(Boolean).length:0;if(positives){score=(score??5)+Math.min(1.5,positives*.4);facts++;reasons.push('Personal strengths are recorded.');}if(negatives){score=(score??5)-Math.min(1.5,negatives*.4);facts++;warnings.push('Personal concerns are recorded.');}if(includesAny(text,['love','favorite','excellent fit','great fit'])){score=(score??5)+.7;facts++;reasons.push('Notes express a positive personal fit.');}if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Personal impression or visit notes have not been recorded.']};if(!visited)warnings.push('A site visit may materially change this personal-fit recommendation.');return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};}
-  const RULES={landBuildability:ruleLandBuildability,privacySetting:rulePrivacySetting,recreationUsability:ruleRecreationUsability,locationConvenience:ruleLocationConvenience,developmentCostRisk:ruleDevelopmentCostRisk,overallPersonalFit:ruleOverallPersonalFit};
-  const simplifiedEntry=value=>({autoScore:clampScore(value?.autoScore),manualScore:clampScore(value?.manualScore),effectiveScore:clampScore(value?.effectiveScore),confidence:['High','Medium','Low','Not enough information'].includes(value?.confidence)?value.confidence:'Not enough information',reasons:Array.isArray(value?.reasons)?value.reasons.filter(item=>typeof item==='string').slice(0,6):[],warnings:Array.isArray(value?.warnings)?value.warnings.filter(item=>typeof item==='string').slice(0,6):[],factsUsed:Array.isArray(value?.factsUsed)?value.factsUsed.filter(item=>typeof item==='string').slice(0,6):[],missingFacts:Array.isArray(value?.missingFacts)?value.missingFacts.filter(item=>typeof item==='string').slice(0,6):[],recalculatedAt:typeof value?.recalculatedAt==='string'?value.recalculatedAt:'',notes:typeof value?.notes==='string'?value.notes:'',updatedAt:typeof value?.updatedAt==='string'?value.updatedAt:'',source:value?.source==='manual'?'manual':'automatic'});
-  function normalizeSimplifiedScorecard(value){const source=value&&typeof value==='object'?value:{},categories={};SIMPLIFIED_SCORECARD_CATEGORIES.forEach(category=>{categories[category.id]=simplifiedEntry(source.categories?.[category.id]??source[category.id]);});return {version:1,categories};}
-  function calculateSimplifiedScorecard(record={},existing){const saved=normalizeSimplifiedScorecard(existing||record.propertyIntelligence?.simplifiedScorecard||record.simplifiedScorecard),categories={};SIMPLIFIED_SCORECARD_CATEGORIES.forEach(category=>{const automatic=RULES[category.id](JSON.parse(JSON.stringify(record||{}))),prior=saved.categories[category.id],manualScore=prior.manualScore,effectiveScore=manualScore===null?automatic.autoScore:manualScore;categories[category.id]={...prior,autoScore:automatic.autoScore,manualScore,effectiveScore,confidence:manualScore===null?automatic.confidence:'High',reasons:automatic.reasons,warnings:automatic.warnings,factsUsed:automatic.reasons,missingFacts:automatic.warnings,recalculatedAt:prior.recalculatedAt||'',source:manualScore===null?'automatic':'manual'};});return {version:1,categories};}
-  function simplifiedTurtleScore(record={}){const scorecard=calculateSimplifiedScorecard(record),categories=SIMPLIFIED_SCORECARD_CATEGORIES.map(category=>{const value=scorecard.categories[category.id];return {...category,...value,score:value.effectiveScore,contribution:0};});const rated=categories.filter(category=>category.score!==null),ratedWeight=rated.reduce((sum,category)=>sum+category.weight,0),total=ratedWeight?rated.reduce((sum,category)=>sum+(category.score/10)*(category.weight/ratedWeight)*100,0):0;categories.forEach(category=>{category.contribution=category.score===null?0:Number(((category.score/10)*(ratedWeight?category.weight/ratedWeight:0)*100).toFixed(2));});const confidences=categories.map(category=>category.confidence),overallConfidence=!rated.length?'Not enough information':confidences.includes('Low')||confidences.includes('Not enough information')?'Low':confidences.includes('Medium')?'Medium':'High';return {total:Number(Math.max(0,Math.min(100,total)).toFixed(2)),percentage:Number(Math.max(0,Math.min(100,total)).toFixed(2)),ratedCount:rated.length,ratedWeight,categories,scorecard,overallConfidence,incomplete:rated.length<SIMPLIFIED_SCORECARD_CATEGORIES.length};}
+  const utilityAccessRecorded=value=>/onsite|roadside|existing|installed|functioning|verified/.test(value);
+  const serviceProfileKey={electric:'electric',water:'waterSource',septic:'septicOrSewer',internet:'internet',driveway:'driveway'};
+  const serviceLegacyKeys={
+    electric:['electric','Electric'],water:['water','Water','well','Well'],septic:['septic','Septic','sewer','Sewer'],
+    internet:['internet','Internet','broadband'],driveway:['driveway','Driveway']
+  };
+  function savedServiceText(record,key){
+    const keys=serviceLegacyKeys[key]||[];
+    const sources=[plainObject(record.infrastructure),plainObject(record.development),plainObject(record.site),plainObject(record.investment)];
+    return sources.flatMap(source=>keys.map(name=>source[name]).filter(value=>value!==undefined&&value!==null&&value!==''))
+      .map(value=>String(value).toLowerCase()).join(' ');
+  }
+  function serviceState(record,profile,key){
+    const explicit=profile[serviceProfileKey[key]]||'unknown';
+    if(explicit==='none')return 'none';
+    if(['verified','verified-well','public-water','verified-other','year-round'].includes(explicit))return 'verified';
+    if(explicit==='recorded')return 'recorded';
+    if(explicit==='available')return 'available';
+    const legacy=savedServiceText(record,key);
+    if(/existing|onsite|installed|functioning|verified|year.round/.test(legacy))return 'recorded';
+    if(/available|roadside/.test(legacy))return 'available';
+    if(/none|not available/.test(legacy))return 'none';
+    return 'unknown';
+  }
+  function serviceContribution(state){return state==='verified'?1:state==='recorded'?.7:state==='available'?.25:state==='none'?-.25:0;}
+  function existingHomeFacts(record,profile=profileFor(record)){
+    const canonicalType=String(record.propertyType||'').toLowerCase();
+    const present=profile.existingResidencePresent===null?existingStructureRecorded(record):profile.existingResidencePresent;
+    const livable=profile.existingResidenceLivable===null?canonicalType==='existing-livable-home':profile.existingResidenceLivable;
+    const services=Object.fromEntries(Object.keys(serviceProfileKey).map(key=>[key,serviceState(record,profile,key)]));
+    const verifiedCount=Object.values(services).filter(value=>value==='verified').length;
+    const recordedCount=Object.values(services).filter(value=>value==='verified'||value==='recorded').length;
+    return {present,livable,services,verifiedCount,recordedCount,condition:profile.residenceCondition,profile};
+  }
+  const acreageBase=acres=>{
+    if(!Number.isFinite(acres)||acres<=0)return null;
+    if(acres<5)return 2;
+    if(acres<10)return 3.5;
+    if(acres<20)return 5;
+    if(acres<30)return 6.2;
+    if(acres<=50)return 7;
+    return 7.3;
+  };
+  const routeMinutes=(record,matcher)=>{
+    const destinations=Array.isArray(record.destinations)?record.destinations:[];
+    const item=destinations.find(candidate=>matcher.test(String(candidate?.name||candidate?.label||candidate?.type||'')));
+    if(!item)return null;
+    const value=Number(item.routeMinutes??item.durationMinutes??item.drivingMinutes??item.minutes??item.travelMinutes);
+    return Number.isFinite(value)&&value>=0?value:null;
+  };
+  const timeScore=(minutes,type)=>{
+    if(!Number.isFinite(minutes))return null;
+    if(type==='airport'){if(minutes<=45)return 10;if(minutes<=60)return 8.5;if(minutes<=75)return 7;if(minutes<=90)return 4.5;return 2.5;}
+    if(minutes<=20)return 10;if(minutes<=35)return 8;if(minutes<=50)return 6;if(minutes<=70)return 4;return 2.5;
+  };
+  const explicitAccessRatings=record=>{
+    const values=[];
+    for(const [label,key] of [['Airport','Airport'],['Shopping','Shopping']]){
+      const raw=Number(record.scores?.[key]);
+      if(Number.isFinite(raw)&&raw>=0&&raw<=100)values.push({label,score:raw/10});
+    }
+    return values;
+  };
+  const AUTO_SCORE_FACT_MAPPING={
+    existingHomeInfrastructure:['saved property type and home facts','explicit residence condition','saved electric, water, septic, driveway, internet, and outbuilding facts'],
+    secondHomeBuildPotential:['acreage','identified additional build-site facts','site access, utility-extension, restriction, terrain, flood, soil, and septic facts'],
+    landCharacterPrivacy:['acreage','wooded/open mix','slope character','privacy, views, road, and neighbor observations'],
+    recreationWaterFeatures:['acreage','trails, hunting, woods, usable-land, and water-feature facts','water reliability and flood-risk facts'],
+    locationConvenience:['verified routed destination minutes','explicitly saved airport or shopping access ratings'],
+    costRiskPersonalFit:['asking price and price per acre','rehabilitation, driveway, utility, well, septic, flood, terrain, and restriction facts','detailed Overall Feeling and visit observations']
+  };
+
+  function ruleExistingHomeInfrastructure(record){
+    const profile=profileFor(record),home=existingHomeFacts(record,profile),reasons=[],warnings=[];
+    const hasAnyFact=home.present||Object.values(home.services).some(value=>value!=='unknown')||profile.outbuildings!=='unknown';
+    if(!hasAnyFact){
+      if(String(record.propertyType||'').toLowerCase()==='raw-land')return {autoScore:1.2,confidence:'Low',reasons:['Saved property type identifies raw land without recorded infrastructure.'],warnings:['No existing residence or installed infrastructure is recorded.']};
+      return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Existing-home and installed-infrastructure facts are not yet recorded.']};
+    }
+    let score=home.present?2.1:1.2,facts=0;
+    if(home.present){facts++;reasons.push('An existing residence or structure is recorded.');}
+    if(home.livable){score+=3;facts++;reasons.push('An existing livable residence is recorded.');}
+    else if(home.present)warnings.push('Immediate livability has not been verified.');
+    if(profile.residenceCondition==='livable'){score+=1.1;facts++;reasons.push('Residence condition is recorded as livable.');}
+    else if(profile.residenceCondition==='minor-work'){score+=.45;facts++;reasons.push('Residence is recorded as needing only minor work.');}
+    else if(profile.residenceCondition==='major-rehabilitation'){score-=.9;facts++;warnings.push('Residence requires major rehabilitation.');}
+    else if(home.present)warnings.push('Residence condition remains unverified.');
+    const serviceLabels={electric:'Electric service',water:'Water source',septic:'Septic or sewer',driveway:'Driveway access',internet:'Internet'};
+    Object.entries(home.services).forEach(([key,state])=>{
+      // Raw land receives a low readiness score, not an additional negative penalty for each absent service.
+      score+=(!home.present&&state==='none')?0:serviceContribution(state);
+      if(state==='verified'){facts++;reasons.push(`${serviceLabels[key]} is verified.`);}
+      else if(state==='recorded'){facts++;reasons.push(`${serviceLabels[key]} is recorded but still needs verification.`);}
+      else if(state==='available')warnings.push(`${serviceLabels[key]} is available, not confirmed installed.`);
+      else if(state==='none')warnings.push(`${serviceLabels[key]} is recorded as unavailable.`);
+    });
+    if(profile.driveway==='year-round'){score+=.25;facts++;reasons.push('Driveway is recorded as practical year-round access.');}
+    if(['garage','barn','workshop','multiple'].includes(profile.outbuildings)){score+=.45;facts++;reasons.push('Useful existing outbuilding value is recorded.');}
+    if(profile.utilityExtensionDifficulty==='low'&&['identified','likely'].includes(profile.additionalBuildSite)){score+=.35;facts++;reasons.push('Utilities appear close to a likely second-home site.');}
+    if(!home.livable&&home.present&&profile.residenceCondition==='unknown')warnings.push('Do not assume an existing structure can be occupied immediately.');
+    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  function ruleSecondHomeBuildPotential(record){
+    const profile=profileFor(record),text=textFacts(record),acres=Number(record.acres),reasons=[],warnings=[];
+    let score=acreageBase(acres),facts=score===null?0:1;
+    if(score===null&&profile.additionalBuildSite==='unknown')return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Acreage and additional-build-site facts are not yet recorded.']};
+    score=score??4;
+    if(acres>=20){reasons.push('Acreage supports a separate second-home area pending field verification.');}
+    else if(Number.isFinite(acres)&&acres<10)warnings.push('Limited acreage may constrain a separate second-home site.');
+    const legacySite=plainObject(record.development).homesite||plainObject(record.site).Homesite||plainObject(record.site)['Home Site']||plainObject(record.site).Pad||'';
+    const buildSite=profile.additionalBuildSite;
+    if(buildSite==='identified'){score+=2.3;facts++;reasons.push('An additional build site is identified.');}
+    else if(buildSite==='likely'){score+=1.3;facts++;reasons.push('An additional build site appears likely.');}
+    else if(buildSite==='not-viable'){score=1.2;facts++;warnings.push('A realistic additional build site is recorded as not viable.');}
+    else if(practicalHomesiteRecorded(String(legacySite).toLowerCase(),text)){score+=.9;facts++;reasons.push('A saved pad or build-site fact supports second-home potential.');}
+    else warnings.push('Additional build-site location, soil, and septic feasibility need verification.');
+    if(profile.additionalBuildSiteConfidence==='high'){score+=.5;facts++;reasons.push('Build-site confidence is high.');}
+    else if(profile.additionalBuildSiteConfidence==='low')warnings.push('Build-site confidence remains low.');
+    if(profile.secondHomeAccess==='independent'){score+=.75;facts++;reasons.push('Independent second-home access is recorded.');}
+    else if(profile.secondHomeAccess==='shared-practical'){score+=.3;facts++;reasons.push('Practical shared access is recorded.');}
+    else if(profile.secondHomeAccess==='difficult'){score-=.9;facts++;warnings.push('Second-home access may require material work.');}
+    else if(profile.secondHomeAccess==='not-feasible'){score=1.2;facts++;warnings.push('Second-home access is recorded as not feasible.');}
+    if(profile.utilityExtensionDifficulty==='low'){score+=.55;facts++;reasons.push('Utility extension appears manageable.');}
+    else if(profile.utilityExtensionDifficulty==='high'){score-=.7;facts++;warnings.push('Utility extension may be difficult.');}
+    else if(profile.utilityExtensionDifficulty==='extreme'){score-=1.2;facts++;warnings.push('Utility extension is recorded as extreme.');}
+    if(profile.multipleResidences==='permitted'){score+=.7;facts++;reasons.push('Multiple residences are recorded as permitted.');}
+    else if(profile.multipleResidences==='likely'){score+=.3;facts++;reasons.push('Multiple residences appear likely, pending confirmation.');}
+    else if(profile.multipleResidences==='restricted'){score-=1;facts++;warnings.push('Restrictions may limit a second residence.');}
+    else if(profile.multipleResidences==='not-permitted'){score=1.2;facts++;warnings.push('Multiple residences are recorded as not permitted.');}
+    if(profile.slopeCharacter==='steep-limiting'){score-=.9;facts++;warnings.push('Steep terrain may limit a second-home site.');}
+    if(['moderate','high'].includes(profile.waterFloodRisk)||includesAny(text,['floodplain','drainage concern','septic concern','perc concern'])){score-=.6;facts++;warnings.push('Flood, drainage, soil, or septic feasibility needs review.');}
+    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  function ruleLandCharacterPrivacy(record){
+    const profile=profileFor(record),text=textFacts(record),acres=Number(record.acres),reasons=[],warnings=[];
+    let score=acreageBase(acres),facts=score===null?0:1;
+    if(score===null&&!includesAny(text,['privacy','rural','wood','tree','view','mountain','secluded']))return {autoScore:null,confidence:'Not enough information',reasons,warnings:['No acreage or land-character observations are recorded.']};
+    score=score??5;
+    if(profile.woodedOpenMix==='mixed'){score+=1.25;facts++;reasons.push('A mixed wooded and open-land pattern is recorded.');}
+    else if(profile.woodedOpenMix==='mostly-wooded'){score+=.8;facts++;reasons.push('Wooded cover is recorded.');}
+    else if(profile.woodedOpenMix==='mostly-open'){score+=.25;facts++;reasons.push('Open usable areas are recorded.');}
+    else if(profile.woodedOpenMix==='featureless'){score-=.4;facts++;warnings.push('Land character is recorded as featureless or uniform.');}
+    if(['mixed-moderate','recreational'].includes(profile.slopeCharacter)){score+=.8;facts++;reasons.push('Varied or moderate slopes support privacy, views, or recreation.');}
+    else if(profile.slopeCharacter==='flat-open'){score-=.15;facts++;warnings.push('Flat open terrain may provide less natural screening.');}
+    else if(profile.slopeCharacter==='steep-limiting'){score-=.9;facts++;warnings.push('Excessively steep terrain limits usable areas.');}
+    const positives=['privacy','secluded','rural','wood','timber','tree cover','mountain view','view'];
+    const negatives=['neighbor','nearby homes','road noise','traffic','visible from road'];
+    if(includesAny(text,positives)){score+=.9;facts++;reasons.push('Saved observations describe privacy, cover, rural setting, or views.');}
+    if(includesAny(text,negatives)){score-=1;facts++;warnings.push('Saved observations identify a neighbor, visibility, or road-noise concern.');}
+    if(acres>=30)reasons.push('Acreage supports separation between uses.');
+    if(profile.woodedOpenMix==='unknown')warnings.push('Wooded/open balance and usable areas need field verification.');
+    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  function ruleRecreationWaterFeatures(record){
+    const profile=profileFor(record),text=textFacts(record),acres=Number(record.acres),reasons=[],warnings=[];
+    let score=Number.isFinite(acres)&&acres>0?(acres<10?3.5:acres<20?5:acres<30?6:7):null,facts=score===null?0:1;
+    if(score!==null)reasons.push('Acreage provides a starting point for on-site recreation.');
+    const recreationTerms=['trail','atv','sxs','hunting','hike','shoot','woods','timber','open ground'];
+    if(includesAny(text,recreationTerms)){score=(score??5)+1.15;facts++;reasons.push('Saved observations identify recreation, trails, hunting, woods, or usable ground.');}
+    const water=profile.waterFeatureType!=='unknown'?profile.waterFeatureType:String(record.waterFeature||'').toLowerCase();
+    if(['creek','spring','pond','river','multiple'].includes(water)){score=(score??5)+(water==='multiple'?1.9:1.3);facts++;reasons.push(`${water==='multiple'?'Multiple water features':water[0].toUpperCase()+water.slice(1)} are recorded.`);}
+    else if(water==='seasonal-drainage'||water==='seasonal'){score=(score??5)+.35;facts++;warnings.push('A seasonal drainage feature is recorded; reliability is limited.');}
+    if(profile.waterFeatureReliability==='verified-year-round'){score=(score??5)+.75;facts++;reasons.push('Water feature is recorded as verified year-round.');}
+    else if(profile.waterFeatureReliability==='unverified')warnings.push('Water-feature reliability remains unverified.');
+    if(['mixed-moderate','recreational'].includes(profile.slopeCharacter)){score=(score??5)+.35;facts++;reasons.push('Terrain variety supports recreation.');}
+    if(profile.waterFloodRisk==='high')warnings.push('Flood exposure remains a separate cost and risk concern.');
+    if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['No acreage, recreation, or water-feature facts are recorded.']};
+    if(facts<2)warnings.push('Trail, hunting, water, and usable-ground conditions need field verification.');
+    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  function ruleLocationConvenience(record){
+    const entries=[['Airport',/airport/i,'airport'],["Lowe's",/lowe'?s/i,'service'],['Home Depot',/home depot/i,'service'],['Costco',/costco/i,'service'],['Grocery',/grocery|walmart|supermarket/i,'service'],['Hospital',/hospital/i,'service']];
+    const known=[];
+    entries.forEach(([label,matcher,type])=>{const minutes=routeMinutes(record,matcher);if(minutes!==null)known.push({label,minutes,score:timeScore(minutes,type),type});});
+    const savedRatings=explicitAccessRatings(record);
+    if(!known.length&&!savedRatings.length)return {autoScore:null,confidence:'Not enough information',reasons:[],warnings:['No verified routed travel times or explicitly saved access ratings are recorded. Straight-line distances are not used for this score.']};
+    const scored=[...known,...savedRatings],score=scored.reduce((total,item)=>total+item.score,0)/scored.length,reasons=[],warnings=[];
+    const airport=known.find(item=>item.type==='airport');
+    if(airport){
+      if(airport.minutes<=45)reasons.push(`Airport routed time is ${airport.minutes} minutes.`);
+      else if(airport.minutes<=75)reasons.push(`Airport routed time is ${airport.minutes} minutes and remains competitive.`);
+      else warnings.push(`Airport routed time is ${airport.minutes} minutes.`);
+    }
+    if(known.some(item=>item.label==="Lowe's"))reasons.push("Lowe's has a property-specific routed time.");
+    if(savedRatings.length)reasons.push(`Uses ${savedRatings.map(item=>item.label.toLowerCase()).join(' and ')} access rating${savedRatings.length===1?'':'s'} already saved with this property.`);
+    const missing=entries.filter(([,matcher])=>routeMinutes(record,matcher)===null).map(([label])=>label);
+    if(missing.length)warnings.push(`Missing routed data: ${missing.join(', ')}.`);
+    return {autoScore:clampScore(score),confidence:confidenceFor(known.length+savedRatings.length,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  function ruleCostRiskPersonalFit(record){
+    const profile=profileFor(record),home=existingHomeFacts(record,profile),text=textFacts(record),reasons=[],warnings=[];
+    let score=null,facts=0;
+    const price=Number(record.price),acres=Number(record.acres),pricePerAcre=price>0&&acres>0?price/acres:null;
+    if(Number.isFinite(price)&&price>0){
+      score=5;facts++;reasons.push('Asking price is recorded.');
+      if(pricePerAcre!==null){
+        facts++;reasons.push('Price per acre is included in the cost review.');
+        if(pricePerAcre<=10000)score+=.55;
+        else if(pricePerAcre<=20000)score+=.2;
+        else if(pricePerAcre>60000)score-=.75;
+        else if(pricePerAcre>35000)score-=.35;
+      }
+    }
+    const savedValue=Number(record.scores?.Value);
+    if(Number.isFinite(savedValue)&&savedValue>=0&&savedValue<=100){score=(score??5)+(savedValue-50)/55;facts++;reasons.push('Saved value assessment is included.');}
+    if(home.present&&home.livable&&home.recordedCount>=3){score=(score??5)+.45;facts++;reasons.push('Existing verified or recorded infrastructure reduces initial development risk.');}
+    else if(String(record.propertyType||'').toLowerCase()==='raw-land'&&home.recordedCount===0){score=(score??5)-.45;facts++;warnings.push('No installed infrastructure is recorded; readiness and development cost remain uncertain.');}
+    if(profile.residenceCondition==='major-rehabilitation'){score=(score??5)-1.15;facts++;warnings.push('Major residence rehabilitation is a material cost risk.');}
+    else if(profile.residenceCondition==='minor-work'){score=(score??5)-.25;facts++;warnings.push('Minor residence work should be priced.');}
+    if(profile.utilityExtensionDifficulty==='high'){score=(score??5)-.55;facts++;warnings.push('Difficult utility extension is a material cost risk.');}
+    else if(profile.utilityExtensionDifficulty==='extreme'){score=(score??5)-1;facts++;warnings.push('Extreme utility extension is a material cost risk.');}
+    if(['restricted','not-permitted'].includes(profile.multipleResidences)){score=(score??5)-.8;facts++;warnings.push('Restrictions may affect second-home feasibility and value.');}
+    if(['moderate','high'].includes(profile.waterFloodRisk)){score=(score??5)-.7;facts++;warnings.push('Flood or drainage exposure needs cost review.');}
+    if(profile.slopeCharacter==='steep-limiting'){score=(score??5)-.6;facts++;warnings.push('Steep terrain may add access and cut-and-fill cost.');}
+    const costs=plainObject(record.developmentCost),siteCosts=plainObject(record.site);
+    const knownCost=[...Object.entries(costs),...Object.entries(siteCosts)].some(([key,value])=>/total|estimate|expected|low|high|driveway|electric|well|septic/i.test(key)&&/\$|\d/.test(String(value)));
+    if(knownCost){score=score??5;facts++;reasons.push('Development-cost inputs are recorded.');}
+    if(includesAny(text,['rock','drainage','flood','bridge','retaining','soil','septic concern','permit','restriction'])){score=(score??5)-1;facts++;warnings.push('Known site-cost, drainage, soil, restriction, or permitting risk needs review.');}
+    const feeling=clampScore(record.propertyIntelligence?.scorecard?.ratings?.overallFeeling?.score??record.scorecard?.ratings?.overallFeeling?.score);
+    if(feeling!==null){score=(score??5)+(feeling-5)*.18;facts++;reasons.push('Saved Overall Feeling is included without replacing cost and risk facts.');}
+    const positives=Array.isArray(record.pros)?record.pros.filter(Boolean).length:0,negatives=Array.isArray(record.cons)?record.cons.filter(Boolean).length:0;
+    if(positives){score=(score??5)+Math.min(.45,positives*.12);facts++;reasons.push('Personal strengths are recorded.');}
+    if(negatives){score=(score??5)-Math.min(.55,negatives*.15);facts++;warnings.push('Personal concerns are recorded.');}
+    if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Asking price, development-cost, risk, or personal-fit facts are not yet recorded.']};
+    if(!knownCost)warnings.push('Unknown work is not treated as zero cost.');
+    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+  }
+
+  const RULES={
+    existingHomeInfrastructure:ruleExistingHomeInfrastructure,
+    secondHomeBuildPotential:ruleSecondHomeBuildPotential,
+    landCharacterPrivacy:ruleLandCharacterPrivacy,
+    recreationWaterFeatures:ruleRecreationWaterFeatures,
+    locationConvenience:ruleLocationConvenience,
+    costRiskPersonalFit:ruleCostRiskPersonalFit
+  };
+  const simplifiedEntry=value=>({
+    autoScore:clampScore(value?.autoScore),manualScore:clampScore(value?.manualScore),effectiveScore:clampScore(value?.effectiveScore),
+    confidence:['High','Medium','Low','Not enough information'].includes(value?.confidence)?value.confidence:'Not enough information',
+    reasons:Array.isArray(value?.reasons)?value.reasons.filter(item=>typeof item==='string').slice(0,8):[],
+    warnings:Array.isArray(value?.warnings)?value.warnings.filter(item=>typeof item==='string').slice(0,8):[],
+    factsUsed:Array.isArray(value?.factsUsed)?value.factsUsed.filter(item=>typeof item==='string').slice(0,8):[],
+    missingFacts:Array.isArray(value?.missingFacts)?value.missingFacts.filter(item=>typeof item==='string').slice(0,8):[],
+    recalculatedAt:typeof value?.recalculatedAt==='string'?value.recalculatedAt:'',notes:typeof value?.notes==='string'?value.notes:'',
+    updatedAt:typeof value?.updatedAt==='string'?value.updatedAt:'',source:value?.source==='manual'?'manual':'automatic'
+  });
+  function normalizeSimplifiedScorecard(value){
+    const source=plainObject(value),rawCategories=plainObject(source.categories||source),categories={},legacyCategories={};
+    SIMPLIFIED_SCORECARD_CATEGORIES.forEach(category=>{categories[category.id]=simplifiedEntry(rawCategories[category.id]);});
+    const legacySource={...plainObject(source.legacyCategories),...Object.fromEntries(LEGACY_CATEGORY_IDS.filter(id=>rawCategories[id]).map(id=>[id,rawCategories[id]]))};
+    LEGACY_CATEGORY_IDS.forEach(id=>{if(legacySource[id])legacyCategories[id]=simplifiedEntry(legacySource[id]);});
+    const passthrough={...source};delete passthrough.categories;delete passthrough.legacyCategories;delete passthrough.version;
+    return {...passthrough,version:2,categories,legacyCategories};
+  }
+  function legacyEntryFor(saved,id){
+    const direct=saved.categories[id];
+    if(direct&&direct.manualScore!==null)return direct;
+    const legacy=saved.legacyCategories[LEGACY_CATEGORY_FALLBACK[id]];
+    if(legacy&&legacy.manualScore!==null)return legacy;
+    // Old Overall Feeling had no direct successor; retain it as a cost/personal-fit override only if no risk override exists.
+    if(id==='costRiskPersonalFit'&&saved.legacyCategories.overallPersonalFit&&saved.legacyCategories.overallPersonalFit.manualScore!==null)return saved.legacyCategories.overallPersonalFit;
+    return direct||legacy||simplifiedEntry({});
+  }
+  function calculateSimplifiedScorecard(record={},existing){
+    const saved=normalizeSimplifiedScorecard(existing||record.propertyIntelligence?.simplifiedScorecard||record.simplifiedScorecard),categories={};
+    SIMPLIFIED_SCORECARD_CATEGORIES.forEach(category=>{
+      const automatic=RULES[category.id](JSON.parse(JSON.stringify(record||{})));
+      const prior=legacyEntryFor(saved,category.id);
+      const manualScore=prior.manualScore;
+      categories[category.id]={...prior,autoScore:automatic.autoScore,manualScore,effectiveScore:manualScore===null?automatic.autoScore:manualScore,
+        confidence:manualScore===null?automatic.confidence:'High',reasons:automatic.reasons,warnings:automatic.warnings,
+        factsUsed:automatic.reasons,missingFacts:automatic.warnings,recalculatedAt:prior.recalculatedAt||'',source:manualScore===null?'automatic':'manual'};
+    });
+    return {version:2,categories,legacyCategories:saved.legacyCategories};
+  }
+  function buildOverallExplanation(categories,overallConfidence,safeguards=[]){
+    const contributions=categories.map(category=>({
+      label:category.label,
+      text:category.score===null?`${category.label}: needs more saved facts.`:`${category.label}: ${category.reasons[0]||`${category.score}/10 automatic score.`}`
+    }));
+    const deductions=unique(categories.flatMap(category=>category.warnings.map(warning=>`${category.label}: ${warning}`))).slice(0,6);
+    const missingInformation=unique(categories.filter(category=>category.score===null||category.confidence!=='High').flatMap(category=>category.warnings)).slice(0,6);
+    return {contributions,deductions,missingInformation,confidence:overallConfidence,safeguards};
+  }
+  function hasClearlyImpossibleSecondSite(profile){return profile.additionalBuildSite==='not-viable'||profile.additionalBuildSiteConfidence==='not-viable'||profile.secondHomeAccess==='not-feasible'||profile.multipleResidences==='not-permitted';}
+  function simplifiedTurtleScore(record={}){
+    const scorecard=calculateSimplifiedScorecard(record),categories=SIMPLIFIED_SCORECARD_CATEGORIES.map(category=>{
+      const value=scorecard.categories[category.id];
+      return {...category,...value,score:value.effectiveScore,contribution:0};
+    });
+    const rated=categories.filter(category=>category.score!==null),ratedWeight=rated.reduce((sum,category)=>sum+category.weight,0);
+    const rawTotal=ratedWeight?rated.reduce((sum,category)=>sum+(category.score/10)*(category.weight/ratedWeight)*100,0):0;
+    categories.forEach(category=>{category.contribution=category.score===null?0:Number(((category.score/10)*(ratedWeight?category.weight/ratedWeight:0)*100).toFixed(2));});
+    const confidences=categories.map(category=>category.confidence);
+    const overallConfidence=!rated.length?'Not enough information':confidences.includes('Low')||confidences.includes('Not enough information')?'Low':confidences.includes('Medium')?'Medium':'High';
+    const profile=profileFor(record),safeguards=[];
+    let total=rawTotal;
+    const home=categories.find(category=>category.id==='existingHomeInfrastructure'),otherRated=categories.filter(category=>category.id!=='existingHomeInfrastructure'&&category.score!==null);
+    if(home?.score>=8&&(!otherRated.length||otherRated.every(category=>category.score<6))){
+      total=Math.min(total,82);
+      safeguards.push('Overall score is capped because an exceptional score cannot rest solely on an existing home and infrastructure.');
+    }
+    if(hasClearlyImpossibleSecondSite(profile)){
+      total=Math.min(total,74);
+      safeguards.push('Overall score is capped because the saved facts identify no viable second-home path.');
+    }
+    total=Number(Math.max(0,Math.min(100,total)).toFixed(2));
+    return {total,percentage:total,ratedCount:rated.length,ratedWeight,categories,scorecard,overallConfidence,
+      incomplete:rated.length<SIMPLIFIED_SCORECARD_CATEGORIES.length,overallExplanation:buildOverallExplanation(categories,overallConfidence,safeguards)};
+  }
   function getTurtleScore(record={}){const simplified=simplifiedTurtleScore(record),detailed=detailedTurtleScore(record);return {...simplified,detailedScorecard:detailed.scorecard,detailedScore:detailed};}
   function displayStatus(status){const value=String(status||'').trim();return STATUS_OPTIONS.includes(value)?value:(LEGACY_STATUS_MAP[value]||'Researching');}
   function statusMatches(record,status){return !status||displayStatus(record?.status)===status;}
   function airportDistance(record={}){const destinations=Array.isArray(record.destinations)?record.destinations:[],airport=destinations.find(item=>/airport/i.test(String(item?.name||item?.label||item?.type||''))),value=Number(airport?.miles??airport?.distanceMiles??airport?.distance);return Number.isFinite(value)&&value>=0?value:null;}
   function pricePerAcre(record={}){const acres=Number(record.acres),price=Number(record.price);return acres>0&&price>=0?price/acres:null;}
   function numericAscending(a,b){const aValid=Number.isFinite(a),bValid=Number.isFinite(b);if(!aValid&&!bValid)return 0;if(!aValid)return 1;if(!bValid)return -1;return a-b;}
-  function sortProperties(records=[],sort='turtleScore',{favoritesFirst=false}={}){const statusIndex=value=>Math.max(0,STATUS_OPTIONS.indexOf(displayStatus(value))),valueFor=record=>{if(sort==='price')return Number(record.price)||null;if(sort==='pricePerAcre')return pricePerAcre(record);if(sort==='acreage')return Number(record.acres)||null;if(sort==='airportDistance')return airportDistance(record);if(sort==='favorite')return record.favorite?1:0;if(sort==='status')return statusIndex(record.status);return getTurtleScore(record).total;};return records.slice().sort((a,b)=>{if(favoritesFirst&&Boolean(a.favorite)!==Boolean(b.favorite))return a.favorite?-1:1;const aValue=valueFor(a),bValue=valueFor(b);if(sort==='price'||sort==='pricePerAcre'||sort==='airportDistance'||sort==='status')return numericAscending(aValue,bValue)||String(a.name||'').localeCompare(String(b.name||''));return numericAscending(bValue,aValue)||String(a.name||'').localeCompare(String(b.name||''));});}
-  function filterProperties(records=[],filters={}){const minimum=value=>{const number=Number(value);return Number.isFinite(number)&&number>0?number:null;},minAcres=minimum(filters.minAcres),minTurtle=minimum(filters.minTurtleScore),minPrice=minimum(filters.minPrice),maxPrice=minimum(filters.maxPrice),maxPricePerAcre=minimum(filters.maxPricePerAcre),county=String(filters.county||'').trim().toLowerCase();return records.filter(record=>{const turtle=getTurtleScore(record).total,price=Number(record.price)||0,acres=Number(record.acres)||0,ppa=pricePerAcre(record);return (!minAcres||acres>=minAcres)&&(!minTurtle||turtle>=minTurtle)&&statusMatches(record,filters.status)&&(!filters.favorite||Boolean(record.favorite))&&(!county||String(record.parcel?.county||'').toLowerCase().includes(county))&&(!minPrice||price>=minPrice)&&(!maxPrice||price<=maxPrice)&&(!maxPricePerAcre||(ppa!==null&&ppa<=maxPricePerAcre));});}
-  function strengthsAndWeaknesses(record={}){const turtle=getTurtleScore(record),strengths=[],weaknesses=[];turtle.categories.filter(category=>category.score!==null&&category.score>=7.5).sort((a,b)=>b.score-a.score).forEach(category=>strengths.push(category.label));turtle.categories.forEach(category=>{if(category.score!==null&&category.score<=4)weaknesses.push(`${category.label} needs attention`);weaknesses.push(...category.warnings.slice(0,1));});if(!turtle.ratedCount)weaknesses.push('Not enough information to calculate a Turtle Score');return {strengths:unique(strengths).slice(0,4),weaknesses:unique(weaknesses).slice(0,4)};}
-  function dashboard(records=[]){const totals=records.length?records:[],rated=totals.map(getTurtleScore).filter(result=>result.ratedCount>0),average=values=>values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null,propertyScores=rated.map(result=>result.total),acres=totals.map(record=>Number(record.acres)||0).filter(value=>value>0),prices=totals.map(record=>Number(record.price)||0).filter(value=>value>0),ppas=totals.map(pricePerAcre).filter(value=>value!==null),statusCounts=Object.fromEntries(STATUS_OPTIONS.map(status=>[status,0]));totals.forEach(record=>{statusCounts[displayStatus(record.status)]+=1;});return {totalProperties:totals.length,favorites:totals.filter(record=>record.favorite).length,visited:totals.filter(record=>{const status=String(record.visitStatus||'').trim();return status&&!/^not visited$/i.test(status);}).length,averageTurtleScore:average(propertyScores),highestScore:propertyScores.length?Math.max(...propertyScores):null,lowestScore:propertyScores.length?Math.min(...propertyScores):null,statusCounts,averageAcreage:average(acres),averagePrice:average(prices),averagePricePerAcre:average(ppas)};}
-  function runRegressionChecks(){const base={id:'OT-001',name:'Fixture',address:'1 Test Rd',lat:35.4,lng:-84.3,acres:30,development:{driveway:'existing',homesite:'pad',utilities:'onsite'},pros:['Wooded privacy and ATV trail'],cons:[],visitStatus:'Walked',destinations:[{name:'Airport',routeMinutes:60},{name:"Lowe's",routeMinutes:30},{name:'Hospital',routeMinutes:35}],propertyIntelligence:{scorecard:{ratings:{privacy:{score:9,notes:'legacy',updatedAt:'2026-07-26'}}}}};const acreScores=[0,10,20,30,50,60].map(acres=>ruleLandBuildability({...base,acres}).autoScore),complete=getTurtleScore(base),partial=getTurtleScore({id:'OT-002',name:'Partial',address:'2 Test Rd',lat:35.4,lng:-84.3,acres:20}),manual=calculateSimplifiedScorecard(base,{categories:{landBuildability:{manualScore:9,notes:'manual'}}}),cleared=calculateSimplifiedScorecard(base,{categories:{landBuildability:{manualScore:null,notes:'keep'}}}),noData=getTurtleScore({}),unknownAirport=ruleLocationConvenience({...base,destinations:[]}),knownRisk=ruleDevelopmentCostRisk({...base,notes:'Rock and drainage concern'}),storedRoundTrip=JSON.parse(JSON.stringify({version:1,records:{'OT-001':{propertyIntelligence:base.propertyIntelligence}}})),sorted=sortProperties([base,{...base,name:'Lower',acres:5,pros:[],destinations:[]}],'turtleScore'),filtered=filterProperties([base],{minAcres:20,minTurtleScore:1});const checks={simplifiedWeightsTotal100:SIMPLIFIED_SCORECARD_CATEGORIES.reduce((sum,category)=>sum+category.weight,0)===100,underTenAcreageIsMateriallyLower:acreScores[0]<acreScores[1],acreageThresholdsIncrease:acreScores[1]<acreScores[2]&&acreScores[2]<acreScores[3]&&acreScores[3]<=acreScores[4]&&acreScores[4]<=acreScores[5],knownAirportTimeScores:ruleLocationConvenience(base).autoScore!==null,unknownAirportStaysUnknown:unknownAirport.autoScore===null&&unknownAirport.confidence==='Not enough information',knownRiskProducesWarning:knownRisk.warnings.length>0,manualOverrideWins:manual.categories.landBuildability.effectiveScore===9&&manual.categories.landBuildability.source==='manual',clearingOverrideReturnsAutomatic:cleared.categories.landBuildability.effectiveScore===cleared.categories.landBuildability.autoScore&&cleared.categories.landBuildability.notes==='keep',partialDataRenormalizes:partial.ratedCount>0&&partial.ratedWeight<100&&partial.total>0&&partial.total<=100,noScoreableDataStaysEmpty:noData.ratedCount===0&&noData.total===0,overallScoreBounded:complete.total>=0&&complete.total<=100,legacyDetailedScorecardSurvives:storedRoundTrip.records['OT-001'].propertyIntelligence.scorecard.ratings.privacy.score===9,sortingAndFilteringUseSimplified:sorted[0]===base&&filtered.length===1,lowConfidenceIdentified:getTurtleScore({...base,destinations:[]}).overallConfidence==='Low'};return {passed:Object.values(checks).every(Boolean),checks};}
-  window.OTIntelligence={config:{scorecardCategories:DETAILED_SCORECARD_CATEGORIES,detailedScorecardCategories:DETAILED_SCORECARD_CATEGORIES,simplifiedScorecardCategories:SIMPLIFIED_SCORECARD_CATEGORIES,statusOptions:STATUS_OPTIONS,autoScoreFactMapping:AUTO_SCORE_FACT_MAPPING},normalizeScorecard,scorecardHasValues,normalizeSimplifiedScorecard,calculateSimplifiedScorecard,getDetailedTurtleScore:detailedTurtleScore,getTurtleScore,displayStatus,statusMatches,airportDistance,pricePerAcre,sortProperties,filterProperties,strengthsAndWeaknesses,dashboard,runRegressionChecks};
+  function sortProperties(records=[],sort='turtleScore',{favoritesFirst=false}={}){
+    const statusIndex=value=>Math.max(0,STATUS_OPTIONS.indexOf(displayStatus(value)));
+    const valueFor=record=>{if(sort==='price')return Number(record.price)||null;if(sort==='pricePerAcre')return pricePerAcre(record);if(sort==='acreage')return Number(record.acres)||null;if(sort==='airportDistance')return airportDistance(record);if(sort==='favorite')return record.favorite?1:0;if(sort==='status')return statusIndex(record.status);return getTurtleScore(record).total;};
+    return records.slice().sort((a,b)=>{if(favoritesFirst&&Boolean(a.favorite)!==Boolean(b.favorite))return a.favorite?-1:1;const aValue=valueFor(a),bValue=valueFor(b);if(sort==='price'||sort==='pricePerAcre'||sort==='airportDistance'||sort==='status')return numericAscending(aValue,bValue)||String(a.name||'').localeCompare(String(b.name||''));return numericAscending(bValue,aValue)||String(a.name||'').localeCompare(String(b.name||''));});
+  }
+  function filterProperties(records=[],filters={}){
+    const minimum=value=>{const number=Number(value);return Number.isFinite(number)&&number>0?number:null;};
+    const minAcres=minimum(filters.minAcres),minTurtle=minimum(filters.minTurtleScore),minPrice=minimum(filters.minPrice),maxPrice=minimum(filters.maxPrice),maxPricePerAcre=minimum(filters.maxPricePerAcre),county=String(filters.county||'').trim().toLowerCase();
+    return records.filter(record=>{const turtle=getTurtleScore(record).total,price=Number(record.price)||0,acres=Number(record.acres)||0,ppa=pricePerAcre(record);return (!minAcres||acres>=minAcres)&&(!minTurtle||turtle>=minTurtle)&&statusMatches(record,filters.status)&&(!filters.favorite||Boolean(record.favorite))&&(!county||String(record.parcel?.county||'').toLowerCase().includes(county))&&(!minPrice||price>=minPrice)&&(!maxPrice||price<=maxPrice)&&(!maxPricePerAcre||(ppa!==null&&ppa<=maxPricePerAcre));});
+  }
+  function profileBadges(record={}){
+    const profile=profileFor(record),home=existingHomeFacts(record,profile),badges=[];
+    if(home.present&&home.livable)badges.push('Livable Home');
+    if(home.recordedCount>=5)badges.push('Infrastructure Ready');
+    if(['identified','likely'].includes(profile.additionalBuildSite))badges.push('Second Build Site');
+    if(['creek','spring','pond','river','multiple'].includes(profile.waterFeatureType))badges.push('Water Feature');
+    if(profile.woodedOpenMix==='mixed'||['mixed-moderate','recreational'].includes(profile.slopeCharacter))badges.push('Mixed Terrain');
+    if(!['identified','likely'].includes(profile.additionalBuildSite))badges.push('Needs Build-Site Verification');
+    return badges;
+  }
+  function profileSummary(record={}){
+    const profile=profileFor(record),home=existingHomeFacts(record,profile);
+    const homeLabel=home.present?(home.livable?'Livable residence recorded':'Residence recorded; livability needs review'):'No existing residence recorded';
+    const infrastructure=home.recordedCount?`${home.recordedCount}/5 installed services recorded`:'Installed services not recorded';
+    const second={identified:'Identified second build site',likely:'Likely second build site','not-viable':'Second build site not viable'}[profile.additionalBuildSite]||'Second build site needs verification';
+    const water=profile.waterFeatureType!=='unknown'&&profile.waterFeatureType!=='none'?`${profile.waterFeatureType.replace(/-/g,' ')} recorded`:'No water feature recorded';
+    const landMix={mixed:'Mixed wooded / open', 'mostly-wooded':'Mostly wooded', 'mostly-open':'Mostly open',featureless:'Uniform / featureless'}[profile.woodedOpenMix]||'Wooded/open mix needs review';
+    const slope={'mixed-moderate':'Mixed / moderate slopes',recreational:'Recreational slopes','steep-limiting':'Steep / limiting','flat-open':'Flat / open'}[profile.slopeCharacter]||'Slope character needs review';
+    const risk=['high','extreme'].includes(profile.utilityExtensionDifficulty)||['moderate','high'].includes(profile.waterFloodRisk)?'Elevated development risk':'Development risk needs review';
+    return {home:homeLabel,infrastructure,secondHome:second,water,landMix,slope,risk};
+  }
+  function strengthsAndWeaknesses(record={}){
+    const turtle=getTurtleScore(record),strengths=[],weaknesses=[];
+    turtle.categories.filter(category=>category.score!==null&&category.score>=7.5).sort((a,b)=>b.score-a.score).forEach(category=>strengths.push(category.label));
+    turtle.categories.forEach(category=>{if(category.score!==null&&category.score<=4)weaknesses.push(`${category.label} needs attention`);weaknesses.push(...category.warnings.slice(0,1));});
+    turtle.overallExplanation.safeguards.forEach(item=>weaknesses.push(item));
+    if(!turtle.ratedCount)weaknesses.push('Not enough information to calculate a Turtle Score');
+    return {strengths:unique(strengths).slice(0,4),weaknesses:unique(weaknesses).slice(0,4)};
+  }
+  function dashboard(records=[]){
+    const totals=records.length?records:[],rated=totals.map(getTurtleScore).filter(result=>result.ratedCount>0),average=values=>values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null,propertyScores=rated.map(result=>result.total),acres=totals.map(record=>Number(record.acres)||0).filter(value=>value>0),prices=totals.map(record=>Number(record.price)||0).filter(value=>value>0),ppas=totals.map(pricePerAcre).filter(value=>value!==null),statusCounts=Object.fromEntries(STATUS_OPTIONS.map(status=>[status,0]));
+    totals.forEach(record=>{statusCounts[displayStatus(record.status)]+=1;});
+    return {totalProperties:totals.length,favorites:totals.filter(record=>record.favorite).length,visited:totals.filter(record=>{const status=String(record.visitStatus||'').trim();return status&&!/^not visited$/i.test(status);}).length,averageTurtleScore:average(propertyScores),highestScore:propertyScores.length?Math.max(...propertyScores):null,lowestScore:propertyScores.length?Math.min(...propertyScores):null,statusCounts,averageAcreage:average(acres),averagePrice:average(prices),averagePricePerAcre:average(ppas)};
+  }
+  function fixtureRecord(name,overrides={}){
+    return {id:name,name,address:`${name} Rd`,lat:35.4,lng:-84.3,acres:32,price:360000,propertyType:'raw-land',notes:'private wooded property with trails and hunting',pros:[],cons:[],scores:{Value:60},destinations:[{name:'Airport',routeMinutes:58},{name:"Lowe's",routeMinutes:30},{name:'Home Depot',routeMinutes:35},{name:'Grocery',routeMinutes:22},{name:'Hospital',routeMinutes:34}],propertyIntelligence:{propertyProfile:{}},...overrides};
+  }
+  function runRegressionChecks(){
+    const ideal=fixtureRecord('A',{propertyType:'existing-livable-home',beds:3,sqft:1850,propertyIntelligence:{propertyProfile:{existingResidencePresent:true,existingResidenceLivable:true,residenceCondition:'livable',electric:'verified',waterSource:'verified-well',septicOrSewer:'verified',internet:'verified',driveway:'year-round',outbuildings:'garage',additionalBuildSite:'identified',additionalBuildSiteConfidence:'high',secondHomeAccess:'independent',utilityExtensionDifficulty:'low',multipleResidences:'permitted',woodedOpenMix:'mixed',slopeCharacter:'mixed-moderate',waterFeatureType:'creek',waterFeatureReliability:'verified-year-round',waterFloodRisk:'low'}}});
+    const raw=fixtureRecord('B',{price:260000,destinations:[{name:'Airport',routeMinutes:45},{name:"Lowe's",routeMinutes:25},{name:'Home Depot',routeMinutes:30},{name:'Grocery',routeMinutes:20},{name:'Hospital',routeMinutes:30}],propertyIntelligence:{propertyProfile:{existingResidencePresent:false,electric:'none',waterSource:'none',septicOrSewer:'none',internet:'none',driveway:'limited',additionalBuildSite:'identified',additionalBuildSiteConfidence:'high',secondHomeAccess:'independent',utilityExtensionDifficulty:'high',multipleResidences:'likely',woodedOpenMix:'mixed',slopeCharacter:'recreational',waterFeatureType:'creek',waterFeatureReliability:'verified-year-round',waterFloodRisk:'low'}}});
+    const noExpansion=fixtureRecord('C',{acres:6,price:325000,propertyType:'existing-livable-home',beds:3,sqft:1500,notes:'near road with limited privacy',propertyIntelligence:{propertyProfile:{existingResidencePresent:true,existingResidenceLivable:true,residenceCondition:'livable',electric:'verified',waterSource:'verified-well',septicOrSewer:'verified',internet:'verified',driveway:'year-round',additionalBuildSite:'not-viable',additionalBuildSiteConfidence:'not-viable',secondHomeAccess:'not-feasible',multipleResidences:'not-permitted',woodedOpenMix:'mostly-open',slopeCharacter:'flat-open',waterFeatureType:'none'}}});
+    const rehab=fixtureRecord('D',{propertyType:'existing-home-needing-renovation',beds:2,sqft:1200,propertyIntelligence:{propertyProfile:{existingResidencePresent:true,existingResidenceLivable:false,residenceCondition:'major-rehabilitation',electric:'recorded',waterSource:'recorded',septicOrSewer:'unknown',internet:'unknown',driveway:'recorded',additionalBuildSite:'identified',additionalBuildSiteConfidence:'medium',secondHomeAccess:'shared-practical',utilityExtensionDifficulty:'moderate',multipleResidences:'likely',woodedOpenMix:'mixed',slopeCharacter:'mixed-moderate',waterFeatureType:'none'}}});
+    const impractical=fixtureRecord('E',{price:275000,notes:'beautiful private woods creek views with severe access and steep slope',propertyIntelligence:{propertyProfile:{existingResidencePresent:false,electric:'none',waterSource:'none',septicOrSewer:'none',internet:'none',driveway:'none',additionalBuildSite:'not-viable',additionalBuildSiteConfidence:'not-viable',secondHomeAccess:'not-feasible',utilityExtensionDifficulty:'extreme',multipleResidences:'unknown',woodedOpenMix:'mostly-wooded',slopeCharacter:'steep-limiting',waterFeatureType:'creek',waterFeatureReliability:'likely',waterFloodRisk:'high'}}});
+    const idealScore=getTurtleScore(ideal),rawScore=getTurtleScore(raw),noExpansionScore=getTurtleScore(noExpansion),rehabScore=getTurtleScore(rehab),impracticalScore=getTurtleScore(impractical);
+    const legacyManual=calculateSimplifiedScorecard(ideal,{categories:{landBuildability:{manualScore:2,notes:'legacy manual'}}}),currentManual=calculateSimplifiedScorecard(ideal,{categories:{existingHomeInfrastructure:{manualScore:1,notes:'current manual'}}}),legacyDetailed=detailedTurtleScore({propertyIntelligence:{scorecard:{ratings:{privacy:{score:9,notes:'saved',updatedAt:'2026-07-27'}}}}});
+    const base=fixtureRecord('base',{propertyIntelligence:{propertyProfile:{additionalBuildSite:'likely'}}}),complete=getTurtleScore(base),partial=getTurtleScore({id:'OT-002',name:'Partial',address:'2 Test Rd',lat:35.4,lng:-84.3,acres:20}),noData=getTurtleScore({}),unknownAirport=ruleLocationConvenience({...base,destinations:[]}),sorted=sortProperties([ideal,raw],'turtleScore'),filtered=filterProperties([ideal],{minAcres:20,minTurtleScore:1});
+    const checks={
+      simplifiedWeightsTotal100:SIMPLIFIED_SCORECARD_CATEGORIES.reduce((sum,category)=>sum+category.weight,0)===100,
+      allNewCategoriesPresent:SIMPLIFIED_SCORECARD_CATEGORIES.length===6&&Object.keys(AUTO_SCORE_FACT_MAPPING).length===6,
+      idealImprovedPropertyRanksFirst:idealScore.total>rawScore.total&&idealScore.total>noExpansionScore.total&&idealScore.total>impracticalScore.total,
+      exceptionalRawStillScoresWell:rawScore.total>=70&&rawScore.total<idealScore.total,
+      homeWithoutExpansionIsCapped:noExpansionScore.total<=74&&noExpansionScore.overallExplanation.safeguards.length>0,
+      rehabilitationGetsPartialInfrastructure:rehabScore.categories.find(category=>category.id==='existingHomeInfrastructure').score>2&&rehabScore.categories.find(category=>category.id==='existingHomeInfrastructure').score<idealScore.categories.find(category=>category.id==='existingHomeInfrastructure').score,
+      impracticalLandDoesNotOutrankIdeal:impracticalScore.total<idealScore.total,
+      explicitSecondSiteImpossibleIsCapped:impracticalScore.total<=74,
+      knownAirportTimeScores:ruleLocationConvenience(base).autoScore!==null,
+      unknownAirportStaysUnknown:unknownAirport.autoScore===null&&unknownAirport.confidence==='Not enough information',
+      legacyManualOverrideMapped:legacyManual.categories.secondHomeBuildPotential.effectiveScore===2&&legacyManual.categories.secondHomeBuildPotential.source==='manual',
+      currentManualOverrideWins:currentManual.categories.existingHomeInfrastructure.effectiveScore===1&&currentManual.categories.existingHomeInfrastructure.source==='manual',
+      existingDetailedScorecardSurvives:legacyDetailed.categories.find(category=>category.id==='privacy').score===9,
+      missingProfileFieldsStayBackwardCompatible:normalizePropertyProfile({}).existingResidencePresent===null&&getTurtleScore({id:'old',acres:20}).total>=0,
+      partialDataStaysBounded:partial.ratedCount>0&&partial.total>=0&&partial.total<=100,
+      noScoreableDataStaysEmpty:noData.ratedCount===0&&noData.total===0,
+      scoresBounded:[idealScore,rawScore,noExpansionScore,rehabScore,impracticalScore,complete].every(result=>result.total>=0&&result.total<=100),
+      sortingAndFilteringUseSimplified:sorted[0]===ideal&&filtered.length===1,
+      profileBadgesAreScoped:profileBadges(ideal).includes('Livable Home')&&!profileBadges(raw).includes('Livable Home')
+    };
+    return {passed:Object.values(checks).every(Boolean),checks,fixtures:{ideal:idealScore.total,raw:rawScore.total,noExpansion:noExpansionScore.total,rehab:rehabScore.total,impractical:impracticalScore.total}};
+  }
+  window.OTIntelligence={
+    config:{scorecardCategories:DETAILED_SCORECARD_CATEGORIES,detailedScorecardCategories:DETAILED_SCORECARD_CATEGORIES,simplifiedScorecardCategories:SIMPLIFIED_SCORECARD_CATEGORIES,statusOptions:STATUS_OPTIONS,autoScoreFactMapping:AUTO_SCORE_FACT_MAPPING,propertyProfileEnums:PROFILE_ENUMS},
+    normalizeScorecard,scorecardHasValues,normalizePropertyProfile,normalizeSimplifiedScorecard,calculateSimplifiedScorecard,getDetailedTurtleScore:detailedTurtleScore,getTurtleScore,displayStatus,statusMatches,airportDistance,pricePerAcre,sortProperties,filterProperties,profileBadges,profileSummary,strengthsAndWeaknesses,dashboard,runRegressionChecks
+  };
   window.OTPropertyIntelligenceRegressionChecks={run:runRegressionChecks};
 })();
