@@ -32,3 +32,8 @@ desktop.ini
 # Duplicate local release working folders
 /release/
 /releases/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
