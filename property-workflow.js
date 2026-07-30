@@ -1,0 +1,125 @@
+/* Smart Import 3.0 canonical-field and workflow helpers. Pure: no storage or startup writes. */
+(()=>{'use strict';
+const VERSION='3.0.0',precedence=window.OTSourcePrecedence;
+const FLEXIBILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
+const BUILDABILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
+const SUBDIVISION_OPTIONS=['unknown','strong','possible','difficult','unlikely'];
+const PROFILE_FIELDS=['existingResidencePresent','existingResidenceLivable','residenceStatus','residenceCondition','electric','waterSource','septicOrSewer','internet','driveway','outbuildings','additionalBuildSite','additionalBuildSiteConfidence','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','secondHomeFlexibilityNote','utilityExtensionDifficulty','multipleResidences','woodedOpenMix','slopeCharacter','waterFeatureType','waterFeatureReliability','waterFloodRisk'];
+const FIELD_REGISTRY=Object.freeze({
+ acreage:'acres',residenceStatus:'propertyIntelligence.propertyProfile.residenceStatus',
+ residenceCondition:'propertyIntelligence.propertyProfile.residenceCondition',
+ existingResidencePresent:'propertyIntelligence.propertyProfile.existingResidencePresent',
+ existingResidenceLivable:'propertyIntelligence.propertyProfile.existingResidenceLivable',
+ residenceSquareFootage:'sqft',structureArea:'structureArea',yearBuilt:'yearBuilt',
+ waterSource:'propertyIntelligence.propertyProfile.waterSource',
+ waterConnectionStatus:'propertyIntelligence.propertyProfile.publicWater',
+ wellStatus:'propertyIntelligence.propertyProfile.well',
+ septicStatus:'propertyIntelligence.propertyProfile.septicOrSewer',
+ sewerStatus:'propertyIntelligence.propertyProfile.sewer',
+ electricStatus:'propertyIntelligence.propertyProfile.electric',
+ internet:'propertyIntelligence.propertyProfile.internet',
+ drivewayStatus:'propertyIntelligence.propertyProfile.driveway',
+ outbuildings:'propertyIntelligence.propertyProfile.outbuildings',
+ garage:'propertyIntelligence.zillowLand.garage',carport:'propertyIntelligence.zillowLand.carport',
+ barn:'propertyIntelligence.zillowLand.barn',stable:'propertyIntelligence.zillowLand.stable',
+ workshop:'propertyIntelligence.zillowLand.workshop',storage:'propertyIntelligence.zillowLand.storageBuilding',
+ wooded:'propertyIntelligence.zillowLand.wooded',private:'propertyIntelligence.zillowLand.private',
+ level:'propertyIntelligence.zillowLand.levelLand',sloped:'propertyIntelligence.zillowLand.slopedLand',
+ mountainView:'propertyIntelligence.zillowLand.mountainView',creek:'propertyIntelligence.zillowLand.creek',
+ secondHomeBuildability:'propertyIntelligence.propertyProfile.secondHomeBuildability',
+ secondHomeAccess:'propertyIntelligence.propertyProfile.secondHomeAccess',
+ secondHomeSubdivisionPotential:'propertyIntelligence.propertyProfile.secondHomeSubdivisionPotential',
+ secondHomeFlexibility:'propertyIntelligence.propertyProfile.secondHomeFlexibility',
+ secondHomeFlexibilityNote:'propertyIntelligence.propertyProfile.secondHomeFlexibilityNote',
+ routeRecords:'destinations'
+});
+const RESEARCH_SCOPE=Object.freeze([['parcel','County parcel record'],['ownership','Ownership'],['zoning','Zoning'],['multipleResidences','Multiple-residence rules'],['flood','Flood information'],['easements','Easements'],['permits','Permits'],['utilities','Utility verification'],['soilSeptic','Soil or septic records'],['restrictions','Legal restrictions'],['countyGis','County GIS'],['secondHome','Second-home feasibility']]);
+const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+const clone=value=>structuredClone(value);
+const canonicalPath=field=>FIELD_REGISTRY[field]||field;
+const getAt=(value,path)=>String(path).split('.').reduce((current,key)=>current?.[key],value);
+function setAt(value,path,nextValue){const parts=String(path).split('.');let current=value;parts.slice(0,-1).forEach(key=>{current[key]=plain(current[key]);current=current[key]});current[parts.at(-1)]=nextValue;return value}
+const canonicalSource=(record,path)=>record?.fieldSources?.[path]||record?.fieldSources?.[path.split('.').at(-1)]||'inferred';
+const enumValue=(value,allowed)=>allowed.includes(String(value||'').toLowerCase())?String(value).toLowerCase():'unknown';
+function profileForRecord(record={},legacyEntry={}){
+ const topLevel=plain(record.propertyProfile),canonical=plain(plain(record.propertyIntelligence).propertyProfile),legacy={...plain(legacyEntry.propertyProfile),...plain(plain(legacyEntry.propertyIntelligence).propertyProfile)},source={...topLevel,...legacy,...canonical};
+ const normalized=window.OTIntelligence?.normalizePropertyProfile?.(source)||{...plain(source)};
+ normalized.secondHomeBuildability=enumValue(source?.secondHomeBuildability,BUILDABILITY_OPTIONS);
+ normalized.secondHomeSubdivisionPotential=enumValue(source?.secondHomeSubdivisionPotential,SUBDIVISION_OPTIONS);
+ normalized.secondHomeFlexibility=enumValue(source?.secondHomeFlexibility,FLEXIBILITY_OPTIONS);
+ normalized.secondHomeFlexibilityNote=String(source?.secondHomeFlexibilityNote||'');
+ normalized.residenceSquareFootage=Number(record.sqft)>0?Number(record.sqft):(Number(source?.residenceSquareFootage)>0?Number(source.residenceSquareFootage):null);
+ return normalized
+}
+function developmentFromProfile(record){
+ const next=clone(record),profile=profileForRecord(next),sources={...(next.fieldSources||{})},development={driveway:'unknown',homesite:'unknown',utilities:'unknown',...(next.development||{})};
+ const assign=(key,value)=>{const path=`development.${key}`;if(!value||precedence?.normalizeSource?.(canonicalSource(next,path))==='user-confirmed')return;if(development[key]!==value){development[key]=value;sources[path]='inferred'}};
+ if(profile.existingResidencePresent===true)assign('homesite','home');else if(['identified','likely'].includes(profile.additionalBuildSite))assign('homesite','identified');else if(profile.additionalBuildSite==='not-viable')assign('homesite','steep');
+ if(['year-round','verified','recorded'].includes(profile.driveway))assign('driveway','existing');else if(profile.driveway==='limited')assign('driveway','rough');else if(profile.driveway==='none')assign('driveway','none');
+ const installed=[profile.electric,profile.waterSource,profile.septicOrSewer].filter(value=>['verified','verified-well','public-water'].includes(value)).length,available=[profile.electric,profile.waterSource,profile.septicOrSewer].filter(value=>['available','recorded'].includes(value)).length;
+ if(installed)assign('utilities','onsite');else if(available)assign('utilities','roadside');
+ next.development=development;next.fieldSources=sources;return next
+}
+function applyProfileDraft(record,draft={}){
+ const before=profileForRecord(record),next=clone(record),profile={...plain(next.propertyIntelligence?.propertyProfile)},sources={...(next.fieldSources||{})},changed=[];
+ for(const key of PROFILE_FIELDS){if(!(key in draft))continue;let value=draft[key];if(key==='secondHomeBuildability')value=enumValue(value,BUILDABILITY_OPTIONS);if(key==='secondHomeSubdivisionPotential')value=enumValue(value,SUBDIVISION_OPTIONS);if(key==='secondHomeFlexibility')value=enumValue(value,FLEXIBILITY_OPTIONS);if(key==='secondHomeFlexibilityNote')value=String(value||'').trim();const legacyOnly=!(key in profile)&&value!==''&&value!==null&&value!==undefined&&value!=='unknown';if(legacyOnly||!precedence?.sameValue?.(before[key],value)&&String(before[key]??'')!==String(value??'')){profile[key]=value;sources[`propertyIntelligence.propertyProfile.${key}`]='user-confirmed';changed.push(key)}}
+ if('residenceSquareFootage' in draft){const sqft=Number(draft.residenceSquareFootage),value=Number.isFinite(sqft)&&sqft>0?sqft:0;if(Number(next.sqft||0)!==value){next.sqft=value;sources.sqft='user-confirmed';changed.push('residenceSquareFootage')}}
+ if(['existingResidencePresent','existingResidenceLivable','residenceCondition'].some(key=>key in draft)){const status=profile.existingResidencePresent===false?'raw_land':profile.existingResidenceLivable===true||profile.residenceCondition==='livable'?'livable':profile.existingResidencePresent===true&&profile.existingResidenceLivable===false&&profile.residenceCondition==='major-rehabilitation'?'non_livable':profile.residenceStatus;if(status&&profile.residenceStatus!==status){profile.residenceStatus=status;sources['propertyIntelligence.propertyProfile.residenceStatus']='user-confirmed';changed.push('residenceStatus')}}
+ next.propertyIntelligence={...(next.propertyIntelligence||{}),propertyProfile:profile};next.fieldSources=sources;next.updatedAt=new Date().toISOString();
+ return {property:developmentFromProfile(next),changed:[...new Set(changed)]}
+}
+function applyProposals(record,proposals={},source='research',{explicit=false}={}){
+ const next=clone(record),updated=[],conflicts=[];
+ for(const [field,candidate] of Object.entries(proposals||{})){const path=canonicalPath(field),current=getAt(next,path),currentSource=canonicalSource(next,path),decision=precedence?.canReplace?.(current,currentSource,candidate,source,{explicit})||{allowed:current===undefined||current===null||current==='',source};if(decision.allowed){setAt(next,path,candidate);next.fieldSources={...(next.fieldSources||{}),[path]:decision.source||source};updated.push(path)}else if(decision.conflict){precedence?.preserveCandidate?.(next,path,candidate,source,'rejected');conflicts.push({field:path,current,candidate,source:currentSource})}}
+ return {property:developmentFromProfile(next),updated,conflicts}
+}
+const meaningful=value=>Array.isArray(value)?value.length>0:value&&typeof value==='object'?Object.keys(value).length>0:String(value??'').trim()!==''&&String(value).toLowerCase()!=='unknown';
+function researchAssessment(record={}){
+ const profile=profileForRecord(record),parcel=plain(record.parcel),facts={parcel:parcel.parcelId||record.parcelNumber,ownership:record.owner||record.ownership,zoning:record.zoning,multipleResidences:profile.multipleResidences!=='unknown'&&profile.multipleResidences,flood:record.floodInfo||record.floodplain||profile.waterFloodRisk!=='unknown'&&profile.waterFloodRisk,easements:record.easements,permits:record.permits,utilities:[profile.electric,profile.waterSource,profile.septicOrSewer].some(value=>!['unknown',''].includes(value))&&'recorded',soilSeptic:record.soilReport||record.septicRecords,restrictions:record.restrictions,countyGis:parcel.gisUrl||parcel.recordUrl,secondHome:[profile.secondHomeFlexibility,profile.secondHomeBuildability,profile.secondHomeAccess,profile.secondHomeSubdivisionPotential].some(value=>value&&value!=='unknown')&&'recorded'};
+ const completed=RESEARCH_SCOPE.filter(([key])=>meaningful(facts[key])).map(([,label])=>label),missing=RESEARCH_SCOPE.filter(([key])=>!meaningful(facts[key])).map(([,label])=>label);
+ return {status:missing.length?'partial':'complete',completed,missing,scope:RESEARCH_SCOPE.map(([,label])=>label)}
+}
+function applyResearchAssessment(record){const next=clone(record),assessment=researchAssessment(next),now=new Date().toISOString();next.propertyResearch={...(next.propertyResearch||{}),version:1,scope:assessment.scope,completed:assessment.completed,missing:assessment.missing,status:assessment.status,checkedAt:now,provider:'Saved facts and configured county-record links only'};next.researchStatus=assessment.status==='complete'?'Research complete':'Research partial';next.researchUpdatedAt=now;next.updatedAt=now;return {property:next,...assessment}}
+function completionSummary({zillow=0,zillowAction='imported',research='skipped',routes=0,scoreBefore=null,scoreAfter=null,reviewCount=0,partial=false}={}){return {status:partial?'partial':'complete',headline:partial?'Property saved with items still to verify':'Property created',items:[zillow?`${zillow} Zillow facts ${zillowAction}`:'Zillow facts skipped',`Property research ${research}`,routes?`${routes} routes verified`:'Routes not yet verified',Number.isFinite(scoreBefore)&&Number.isFinite(scoreAfter)?`Score updated from ${Math.round(scoreBefore)} to ${Math.round(scoreAfter)}`:'Score updated',`${reviewCount} ${reviewCount===1?'item':'items'} need review`]}}
+function runRegressionChecks(){
+ const routes=[window.OTRoutePolicy.canonicalAirport({routeMinutes:48,routeMiles:36}),{category:'Grocery',routeMinutes:18,routeMiles:12},{category:'Hospital',routeMinutes:24,routeMiles:17},{category:'Home improvement',routeMinutes:26,routeMiles:19},{category:'Costco',routeMinutes:58,routeMiles:48}];
+ const base={id:'fixture',name:'Fixture',address:'1 Test Rd, TN',lat:35.4,lng:-84.3,acres:30,price:360000,propertyType:'existing-livable-home',notes:'private wooded property with trails and hunting',destinations:routes,development:{driveway:'unknown',homesite:'unknown',utilities:'unknown'},fieldSources:{},propertyIntelligence:{propertyProfile:{}}};
+ const completeDraft={existingResidencePresent:true,existingResidenceLivable:true,residenceStatus:'livable',residenceCondition:'livable',electric:'verified',waterSource:'verified-well',septicOrSewer:'verified',internet:'verified',driveway:'year-round',outbuildings:'barn',additionalBuildSite:'identified',additionalBuildSiteConfidence:'high',secondHomeBuildability:'excellent',secondHomeAccess:'independent',secondHomeSubdivisionPotential:'strong',secondHomeFlexibility:'excellent',secondHomeFlexibilityNote:'Independent rear site.',utilityExtensionDifficulty:'low',multipleResidences:'permitted',woodedOpenMix:'mixed',slopeCharacter:'mixed-moderate',waterFeatureType:'creek',waterFeatureReliability:'verified-year-round',waterFloodRisk:'low'};
+ const complete=applyProfileDraft(base,completeDraft).property,shared=applyProfileDraft({...complete,id:'shared'},{secondHomeBuildability:'good',secondHomeAccess:'shared-practical',secondHomeSubdivisionPotential:'difficult',secondHomeFlexibility:'good',secondHomeFlexibilityNote:'Shared access; subdivision remains uncertain.'}).property;
+ const raw=applyProfileDraft({...base,id:'raw',propertyType:'raw-land',beds:0,sqft:0},{existingResidencePresent:false,existingResidenceLivable:false,electric:'none',waterSource:'none',septicOrSewer:'none',internet:'none',driveway:'none',additionalBuildSite:'likely',secondHomeBuildability:'unknown',secondHomeAccess:'unknown',secondHomeSubdivisionPotential:'unknown',secondHomeFlexibility:'unknown'}).property;
+ const noPath=applyProfileDraft({...complete,id:'no-path',acres:6},{additionalBuildSite:'not-viable',additionalBuildSiteConfidence:'not-viable',secondHomeBuildability:'unlikely',secondHomeAccess:'not-feasible',secondHomeSubdivisionPotential:'unlikely',secondHomeFlexibility:'unlikely',multipleResidences:'not-permitted'}).property;
+ const manual=applyProfileDraft({...complete,id:'manual',acres:40,fieldSources:{...complete.fieldSources,acres:'user-confirmed'},destinations:[{...routes[0],source:'user-confirmed',locked:true},...routes.slice(1)]},{secondHomeFlexibility:'good'}).property;
+ const refreshed=applyProposals(manual,{acreage:50.61,secondHomeFlexibility:'difficult'},'zillow'),roundTrip=JSON.parse(JSON.stringify(complete)),research=applyResearchAssessment(complete),summary=completionSummary({zillow:20,research:'partial',routes:5,scoreBefore:50,scoreAfter:70,reviewCount:2});
+ const completeScore=window.OTIntelligence.getTurtleScore(complete),sharedScore=window.OTIntelligence.getTurtleScore(shared),rawScore=window.OTIntelligence.getTurtleScore(raw),noPathScore=window.OTIntelligence.getTurtleScore(noPath),baseScore=window.OTIntelligence.getTurtleScore(base),completeFlex=completeScore.categories.find(item=>item.id==='secondHomeBuildPotential'),sharedFlex=sharedScore.categories.find(item=>item.id==='secondHomeBuildPotential'),rawFlex=rawScore.categories.find(item=>item.id==='secondHomeBuildPotential'),noPathFlex=noPathScore.categories.find(item=>item.id==='secondHomeBuildPotential');
+ const unanswered={...raw,id:'review',propertyIntelligence:{...raw.propertyIntelligence,propertyProfile:{...raw.propertyIntelligence.propertyProfile,additionalBuildSite:'unknown'}}},reviewBefore=window.OTIntelligence.dataReview(unanswered),answered=applyProfileDraft(unanswered,{secondHomeFlexibility:'good'}).property,reviewAfter=window.OTIntelligence.dataReview(answered),likelyHome={...base,id:'likely-home',propertyIntelligence:{propertyProfile:{residenceStatus:'likely_livable',existingResidencePresent:true,existingResidenceLivable:null,residenceCondition:'unknown-condition'}}},homeReviewBefore=window.OTIntelligence.dataReview(likelyHome),confirmedHome=applyProfileDraft(likelyHome,{existingResidenceLivable:true,residenceCondition:'livable'}).property,homeReviewAfter=window.OTIntelligence.dataReview(confirmedHome),homeWarningsBefore=window.OTIntelligence.getTurtleScore(likelyHome).categories.find(item=>item.id==='existingHomeInfrastructure').warnings,homeWarningsAfter=window.OTIntelligence.getTurtleScore(confirmedHome).categories.find(item=>item.id==='existingHomeInfrastructure').warnings;
+ const requiredRegistry=['acreage','residenceStatus','residenceCondition','residenceSquareFootage','structureArea','yearBuilt','waterSource','waterConnectionStatus','wellStatus','septicStatus','sewerStatus','electricStatus','internet','drivewayStatus','garage','carport','barn','stable','workshop','storage','wooded','private','level','sloped','mountainView','creek','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','routeRecords'];
+ const checks={
+  registryHasOneDestination:Object.keys(FIELD_REGISTRY).length===new Set(Object.values(FIELD_REGISTRY)).size,
+  canonicalRegistryCoverage:requiredRegistry.every(key=>FIELD_REGISTRY[key]),
+  legacyProfileReadFallback:profileForRecord({propertyProfile:{secondHomeFlexibility:'good'}},{}).secondHomeFlexibility==='good',
+  canonicalProfileWinsLegacy:profileForRecord({propertyIntelligence:{propertyProfile:{secondHomeFlexibility:'excellent'}}},{propertyIntelligence:{propertyProfile:{secondHomeFlexibility:'difficult'}}}).secondHomeFlexibility==='excellent',
+  profileWritesCanonical:complete.propertyIntelligence.propertyProfile.secondHomeFlexibility==='excellent',
+  profileRoundTrip:roundTrip.propertyIntelligence.propertyProfile.secondHomeFlexibilityNote==='Independent rear site.',
+  everyEditableProfileFieldRoundTrips:PROFILE_FIELDS.every(key=>Object.hasOwn(roundTrip.propertyIntelligence.propertyProfile,key)||completeDraft[key]===undefined),
+  developmentResponds:complete.development.homesite==='home'&&complete.development.driveway==='existing'&&complete.development.utilities==='onsite',
+  completeFixtureMateriallyImproves:completeScore.total>=baseScore.total+10&&completeScore.overallConfidence==='High',
+  completeFixtureHasFewGenuineReviews:window.OTIntelligence.dataReview(complete).count<=3,
+  sharedAccessScoresLower:sharedFlex.score<completeFlex.score&&sharedScore.total<completeScore.total,
+  sharedAccessNotePersists:shared.propertyIntelligence.propertyProfile.secondHomeFlexibilityNote.includes('Shared access'),
+  rawInfrastructureStaysLow:rawScore.categories.find(item=>item.id==='existingHomeInfrastructure').score<5,
+  unknownFlexibilityIsNeutralAndLowerConfidence:rawFlex.score>0&&rawFlex.confidence!=='High',
+  unlikelyFlexibilityMeaningfullyPenalizes:noPathFlex.score<=2.2&&noPathScore.total<80,
+  manualAcreageProtected:refreshed.property.acres===40&&refreshed.conflicts.some(item=>item.field==='acres'),
+  manualFlexibilityProtected:refreshed.property.propertyIntelligence.propertyProfile.secondHomeFlexibility==='good'&&refreshed.conflicts.some(item=>item.field.endsWith('secondHomeFlexibility')),
+  candidatePreserved:refreshed.property.sourceCandidates.acres?.length===1&&refreshed.property.sourceCandidates['propertyIntelligence.propertyProfile.secondHomeFlexibility']?.length===1,
+  manualRouteRemainsLocked:manual.destinations[0].locked===true&&manual.destinations[0].source==='user-confirmed',
+  researchDoesNotFabricate:research.missing.includes('Ownership')&&research.property.propertyResearch.provider.includes('Saved facts'),
+  completionIsCompact:summary.items.length===5,
+  profileAnswerRemovesRelatedReview:reviewBefore.allIssues.some(item=>item.code==='second-site-unknown')&&!reviewAfter.allIssues.some(item=>item.code==='second-site-unknown'),
+  confirmedLivabilityUpdatesCanonicalStatus:confirmedHome.propertyIntelligence.propertyProfile.residenceStatus==='livable'&&homeWarningsBefore.some(item=>/confirm current livability/i.test(item))&&!homeWarningsAfter.some(item=>/confirm current livability/i.test(item)),
+  allFixtureScoresBounded:[completeScore,sharedScore,rawScore,noPathScore].every(score=>score.total>=0&&score.total<=100)
+ };
+ return {passed:Object.values(checks).every(Boolean),checks,fixtures:{complete:completeScore.total,shared:sharedScore.total,raw:rawScore.total,noPath:noPathScore.total}}
+}
+window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,applyProfileDraft,applyProposals,researchAssessment,applyResearchAssessment,completionSummary,runRegressionChecks};
+})();

@@ -7,7 +7,7 @@
 <meta name="description" content="Operation Turtle — East Tennessee property decision system">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Operation Turtle 4.1 Preview</title>
+<title>Operation Turtle 4.3 Preview</title>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="styles.css">
@@ -67,7 +67,7 @@
       <div class="form-head"><div><h2 id="formTitle">Add property</h2><p>Paste a listing link. Smart Import will try to retrieve the page, fill the facts, and locate the property for review.</p></div><button id="closeAddBtn" class="form-close" type="button" aria-label="Close property form">✕</button></div>
       <div class="form-card">
         <div class="import-box">
-          <div><strong>Smart Import 2.0</strong><p>Paste a Zillow, Realtor, Redfin, Land.com, Homes.com, or public MLS link. Operation Turtle will try to retrieve and analyze the listing automatically. Listing text remains an optional fallback.</p></div>
+          <div><strong>Property basics and listing details</strong><p>Enter a listing or address here. Smart Import keeps Zillow Facts, narrowed research, routes, and the final verified save in one progress panel.</p></div>
           <label>Listing URL<input id="addListing" type="url" placeholder="https://www.zillow.com/..."></label>
           <label>Listing text (optional fallback)<textarea id="listingText" rows="4" placeholder="Only use this if the listing website blocks automatic retrieval…"></textarea></label>
           <div class="form-actions"><button id="analyzeListingBtn" class="secondary" type="button">Fetch & analyze listing</button><button id="clearImportBtn" class="secondary outline" type="button">Clear import</button></div>
@@ -148,12 +148,13 @@
 <script>window.OT_CONFIG={developerMode:false};</script>
 <script src="source-precedence.js?v=4.2.1" defer></script>
 <script src="route-policy.js?v=4.2.2" defer></script>
-<script src="intelligence.js?v=4.2.2" defer></script>
-<script src="zillow-facts.js?v=4.2.2" defer></script>
+<script src="intelligence.js?v=4.3.0" defer></script>
+<script src="property-workflow.js?v=4.3.0" defer></script>
+<script src="zillow-facts.js?v=4.3.0" defer></script>
 <script src="zillow-mapper.js?v=4.2.1" defer></script>
 <script src="save-reliability.js" defer></script>
 <script src="diagnostics.js" defer></script>
-<script src="app.js?v=4.2.2" defer></script>
+<script src="app.js?v=4.3.0" defer></script>
 <script src="zillow-workflow.js?v=4.2.1" defer></script>
 <script src="precision.js?v=4.2.1" defer></script>
 <script src="integrity.js" defer></script>
@@ -161,6 +162,7 @@
 <script src="elevation.js" defer></script>
 <script src="p0-regression-checks.js" defer></script>
 <script src="recovery.js" defer></script>
-<script src="stabilization.js?v=4.2.2" defer></script>
+<script src="stabilization.js?v=4.3.0" defer></script>
+<script src="smart-import.js?v=4.3.0" defer></script>
 </body>
 </html>

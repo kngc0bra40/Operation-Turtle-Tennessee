@@ -53,7 +53,10 @@
     outbuildings:['unknown','garage','barn','workshop','multiple','none'],
     additionalBuildSite:['unknown','identified','likely','none-identified','not-viable'],
     additionalBuildSiteConfidence:['unknown','high','medium','low','not-viable'],
+    secondHomeBuildability:['unknown','excellent','good','difficult','unlikely'],
     secondHomeAccess:['unknown','independent','shared-practical','difficult','not-feasible'],
+    secondHomeSubdivisionPotential:['unknown','strong','possible','difficult','unlikely'],
+    secondHomeFlexibility:['unknown','excellent','good','difficult','unlikely'],
     utilityExtensionDifficulty:['unknown','low','moderate','high','extreme'],
     multipleResidences:['unknown','permitted','likely','restricted','not-permitted'],
     woodedOpenMix:['unknown','mixed','mostly-wooded','mostly-open','featureless'],
@@ -113,6 +116,7 @@
       else if(profile.existingResidencePresent===false)profile.residenceStatus='raw_land';
       else if(profile.existingResidencePresent===true&&profile.existingResidenceLivable===false&&profile.residenceCondition==='major-rehabilitation')profile.residenceStatus='non_livable';
     }
+    profile.secondHomeFlexibilityNote=typeof source.secondHomeFlexibilityNote==='string'?source.secondHomeFlexibilityNote:'';
     return profile;
   }
   const profileFor=record=>normalizePropertyProfile(record.propertyIntelligence?.propertyProfile||record.propertyProfile);
@@ -258,7 +262,7 @@
     if(/home|livable|residence|cabin/.test(type)&&profile.existingResidencePresent===null)add('home-unclear','A home-type property has no confirmed residence status.','Immediate livability should not be assumed.','Existing Home & Infrastructure','scorecard','existingResidencePresent',{type,present:profile.existingResidencePresent,source:record.fieldSources?.existingResidencePresent});
     const utilities=['electric','waterSource','septicOrSewer','driveway','internet'];
     if(utilities.some(key=>profile[key]==='unknown')&&(/home|improved|structure/.test(type)||hasHome))add('utilities-unclear','Core utility status is incomplete.','Electric, water, septic, driveway, and internet affect readiness and development risk.','Existing Home & Infrastructure','scorecard','utilities',Object.fromEntries(utilities.map(key=>[key,profile[key]])));
-    if(profile.additionalBuildSite==='unknown')add('second-site-unknown','Additional-home site is not recorded.','A second-home path is central to the Turtle Score.','Second-Home Build Potential','scorecard','additionalBuildSite',{value:profile.additionalBuildSite,source:record.fieldSources?.additionalBuildSite});
+    if(profile.additionalBuildSite==='unknown'&&profile.secondHomeFlexibility==='unknown')add('second-site-unknown','Additional-home feasibility is not recorded.','A second-home path is central to the Turtle Score.','Second-Home Build Potential','scorecard','additionalBuildSite',{site:profile.additionalBuildSite,flexibility:profile.secondHomeFlexibility,source:record.fieldSources?.['propertyIntelligence.propertyProfile.secondHomeFlexibility']||record.fieldSources?.secondHomeFlexibility});
     const waterText=String(record.waterFeature||'').toLowerCase();
     if((/creek|stream|pond|spring|river|water/.test(waterText)||/creek|stream|pond|spring|river/.test(String(record.notes||'')))&&profile.waterFeatureReliability==='unknown')add('water-unverified','A water feature is mentioned but reliability is not verified.','Water adds recreation value while reliability and flood exposure affect risk.','Recreation & Water Features','scorecard','waterFeatureReliability',{waterText,reliability:profile.waterFeatureReliability});
     const alternateAcres=Number(record.lotAcres??record.acreage??record.parcel?.acres);
@@ -326,6 +330,14 @@
     else if(buildSite==='not-viable'){score=1.2;facts++;warnings.push('A realistic additional build site is recorded as not viable.');}
     else if(practicalHomesiteRecorded(String(legacySite).toLowerCase(),text)){score+=.9;facts++;reasons.push('A saved pad or build-site fact supports second-home potential.');}
     else warnings.push('Additional build-site location, soil, and septic feasibility need verification.');
+    if(profile.secondHomeBuildability==='excellent'){score+=.8;facts++;reasons.push('Physical second-home buildability is rated excellent by the user.');}
+    else if(profile.secondHomeBuildability==='good'){score+=.4;facts++;reasons.push('Physical second-home buildability is rated good by the user.');}
+    else if(profile.secondHomeBuildability==='difficult'){score-=.7;facts++;warnings.push('Physical second-home buildability is rated difficult.');}
+    else if(profile.secondHomeBuildability==='unlikely'){score=Math.min(score,2);facts++;warnings.push('Physical second-home buildability is rated unlikely.');}
+    if(profile.secondHomeSubdivisionPotential==='strong'){score+=.65;facts++;reasons.push('Independent future or subdivision value is rated strong.');}
+    else if(profile.secondHomeSubdivisionPotential==='possible'){score+=.3;facts++;reasons.push('Subdivision or independent future value remains possible.');}
+    else if(profile.secondHomeSubdivisionPotential==='difficult'){score-=.55;facts++;warnings.push('Subdivision or independent future value is rated difficult.');}
+    else if(profile.secondHomeSubdivisionPotential==='unlikely'){score-=1;facts++;warnings.push('Independent future or subdivision value is rated unlikely.');}
     if(profile.additionalBuildSiteConfidence==='high'){score+=.5;facts++;reasons.push('Build-site confidence is high.');}
     else if(profile.additionalBuildSiteConfidence==='low')warnings.push('Build-site confidence remains low.');
     if(profile.secondHomeAccess==='independent'){score+=.75;facts++;reasons.push('Independent second-home access is recorded.');}
@@ -341,7 +353,13 @@
     else if(profile.multipleResidences==='not-permitted'){score=1.2;facts++;warnings.push('Multiple residences are recorded as not permitted.');}
     if(profile.slopeCharacter==='steep-limiting'){score-=.9;facts++;warnings.push('Steep terrain may limit a second-home site.');}
     if(['moderate','high'].includes(profile.waterFloodRisk)||includesAny(text,['floodplain','drainage concern','septic concern','perc concern'])){score-=.6;facts++;warnings.push('Flood, drainage, soil, or septic feasibility needs review.');}
-    return {autoScore:clampScore(score),confidence:confidenceFor(facts,warnings.length),reasons:unique(reasons),warnings:unique(warnings)};
+    if(profile.secondHomeFlexibility==='excellent'){score=Math.max(score+.8,8.6);facts++;reasons.push('Second Home Flexibility is rated Excellent by the user.');}
+    else if(profile.secondHomeFlexibility==='good'){score=Math.min(8.4,Math.max(score+.35,6.2));facts++;reasons.push('Second Home Flexibility is rated Good by the user.');}
+    else if(profile.secondHomeFlexibility==='difficult'){score=Math.min(score-.6,5.8);facts++;warnings.push('Second Home Flexibility is rated Difficult by the user.');}
+    else if(profile.secondHomeFlexibility==='unlikely'){score=Math.min(score,2.2);facts++;warnings.push('Second Home Flexibility is rated Unlikely by the user.');}
+    else warnings.push('Second Home Flexibility has not been evaluated.');
+    let confidence=confidenceFor(facts,warnings.length);if(profile.secondHomeFlexibility==='unknown'&&confidence==='High')confidence='Medium';
+    return {autoScore:clampScore(score),confidence,reasons:unique(reasons),warnings:unique(warnings)};
   }
 
   function ruleLandCharacterPrivacy(record){
@@ -505,7 +523,7 @@
     const missingInformation=unique(categories.filter(category=>category.score===null||category.confidence!=='High').flatMap(category=>category.warnings)).slice(0,6);
     return {contributions,deductions,missingInformation,confidence:overallConfidence,safeguards};
   }
-  function hasClearlyImpossibleSecondSite(profile){return profile.additionalBuildSite==='not-viable'||profile.additionalBuildSiteConfidence==='not-viable'||profile.secondHomeAccess==='not-feasible'||profile.multipleResidences==='not-permitted';}
+  function hasClearlyImpossibleSecondSite(profile){return profile.secondHomeFlexibility==='unlikely'||profile.secondHomeBuildability==='unlikely'||profile.additionalBuildSite==='not-viable'||profile.additionalBuildSiteConfidence==='not-viable'||profile.secondHomeAccess==='not-feasible'||profile.multipleResidences==='not-permitted';}
   function simplifiedTurtleScore(record={}){
     const scorecard=calculateSimplifiedScorecard(record),categories=SIMPLIFIED_SCORECARD_CATEGORIES.map(category=>{
       const value=scorecard.categories[category.id];
@@ -575,7 +593,7 @@
     const profile=profileFor(record),home=existingHomeFacts(record,profile);
     const homeLabel={livable:'Livable residence recorded',likely_livable:'Likely-livable residence; confirm condition',condition_unknown:'Residence recorded; condition unknown',non_livable:'Non-livable residence recorded',raw_land:'No existing residence recorded',unknown:home.present?'Residence recorded; livability needs review':'Residence status unknown'}[home.status];
     const infrastructure=home.recordedCount?`${home.recordedCount}/5 installed services recorded`:'Installed services not recorded';
-    const second={identified:'Identified second build site',likely:'Likely second build site','not-viable':'Second build site not viable'}[profile.additionalBuildSite]||'Second build site needs verification';
+    const second=profile.secondHomeFlexibility!=='unknown'?'Second Home Flexibility: '+profile.secondHomeFlexibility:({identified:'Identified second build site',likely:'Likely second build site','not-viable':'Second build site not viable'}[profile.additionalBuildSite]||'Second build site needs verification');
     const water=profile.waterFeatureType!=='unknown'&&profile.waterFeatureType!=='none'?`${profile.waterFeatureType.replace(/-/g,' ')} recorded`:'No water feature recorded';
     const landMix={mixed:'Mixed wooded / open', 'mostly-wooded':'Mostly wooded', 'mostly-open':'Mostly open',featureless:'Uniform / featureless'}[profile.woodedOpenMix]||'Wooded/open mix needs review';
     const slope={'mixed-moderate':'Mixed / moderate slopes',recreational:'Recreational slopes','steep-limiting':'Steep / limiting','flat-open':'Flat / open'}[profile.slopeCharacter]||'Slope character needs review';
