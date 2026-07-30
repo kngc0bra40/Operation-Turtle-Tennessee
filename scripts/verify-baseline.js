@@ -47,6 +47,87 @@ const zillowContext={window:{},structuredClone};zillowContext.window.window=zill
 const stabilizationContext={window:{addEventListener:()=>{}},document:makeDocument(),MutationObserver:function(){this.observe=()=>{}},Number,Object,Array,JSON,Date,encodeURIComponent,setTimeout:()=>0,fetch:async()=>{throw new Error('Offline fixture environment')}};stabilizationContext.window.window=stabilizationContext.window;vm.createContext(stabilizationContext);vm.runInContext(sourcePrecedenceSource,stabilizationContext);vm.runInContext(routePolicySource,stabilizationContext);vm.runInContext(stabilizationSource,stabilizationContext);add('Stabilized property-specific routes',stabilizationContext.window.OTStabilization.runRegressionChecks());
 const compactUiChecks={mapLayersStartCollapsed:/id="layersPanel"[^>]*hidden/.test(html),mapLayerSelectionPersists:app.includes('persistMapLayerState')&&app.includes('applyMapLayerState'),mapLayersEscapeCloses:app.includes("event.key==='Escape'")&&app.includes('setLayersPanel(false)'),primaryDossierActions:stabilizationSource.includes("edit.textContent='Edit'")&&stabilizationSource.includes("paste.textContent='Paste Zillow Facts'")&&stabilizationSource.includes("more.className='dossier-more'"),secondaryActionsInMore:['Adjust property location','Research property','Refresh routes','County parcel map','Listing','Site Planning','Delete property'].every(label=>app.includes(label)||stabilizationSource.includes(label)),routeDatesCollapsed:stabilizationSource.includes('<details><summary>Details</summary>')&&!stabilizationSource.includes('checked ${safe'),mileagePrecisionCentral:routePolicySource.includes('function formatMiles'),reviewResolutionAction:app.includes('data-review-resolve')&&app.includes('resolvePropertyReview'),reviewShowAll:app.includes('review-show-all'),routeEditorEscape:stabilizationSource.includes("event.key==='Escape'"),mobileLayerPanel:read('styles.css').includes('@media(max-width:760px){.layers-panel')};
 add('Route review and compact UI wiring',{passed:Object.values(compactUiChecks).every(Boolean),checks:compactUiChecks});
+const routeApi=intelligenceContext.window.OTRoutePolicy;
+const routeFixtureCandidates=[
+  {name:'Promoted Kentucky Grocery',address:'Williamsburg, KY',lat:36.7,lng:-84.2,searchType:'supermarket',searchCategory:'shop',stateCode:'KY',routeMinutes:12,routeMiles:10},
+  {name:'Walmart Supercenter',address:'Maryville, TN',lat:35.7,lng:-84,searchType:'supermarket',searchCategory:'shop',stateCode:'TN',routeMinutes:18,routeMiles:12},
+  {name:'Food City',address:'Athens, TN',lat:35.4,lng:-84.6,searchType:'supermarket',searchCategory:'shop',stateCode:'TN',routeMinutes:22,routeMiles:15}
+];
+const routeValidation=routeApi.validCandidates([
+  ...routeFixtureCandidates,
+  {name:'Corner Convenience',address:'TN',lat:35.4,lng:-84.4,searchType:'convenience',searchCategory:'shop'},
+  {name:'Walmart Fuel Station',address:'TN',lat:35.4,lng:-84.4,searchType:'fuel',searchCategory:'amenity'},
+  {name:'Walmart Distribution Center',address:'TN',lat:35.4,lng:-84.4,searchType:'warehouse',searchCategory:'building'},
+  {name:'Kroger Corporate Office',address:'TN',lat:35.4,lng:-84.4,searchType:'office',searchCategory:'office'},
+  {name:'Market Road',address:'TN',lat:35.4,lng:-84.4,searchType:'road',searchCategory:'highway'},
+  {name:'Food Lion permanently closed',address:'TN',lat:35.4,lng:-84.4,searchType:'supermarket',searchCategory:'shop'}
+],'grocery');
+const previousRoute={name:'Prior Grocery',address:'Athens, TN',lat:35.4,lng:-84.6,routeMinutes:20,routeMiles:14,source:'route-automation'},manualRoute={...previousRoute,source:'user-confirmed',locked:true},homeDepot=routeApi.chooseHomeImprovement({name:"Lowe's",routeMinutes:28,routeMiles:20},{name:'Home Depot',routeMinutes:32,routeMiles:23});
+const routingCorrectionChecks={
+  categoryRadiiCentralAndBounded:routeApi.config.searchRadiiMiles.grocery.initial===20&&routeApi.config.searchRadiiMiles.hospital.initial===35&&routeApi.config.searchRadiiMiles['home-improvement'].initial===35&&routeApi.config.searchRadiiMiles.costco.initial===75,
+  oneConfiguredFallbackPerCategory:Object.values(routeApi.config.searchRadiiMiles).every(value=>value.fallback>value.initial),
+  multipleCandidatesComparedByRouteTime:routeApi.chooseRoutedCandidate('hospital',[{routeMinutes:30,routeMiles:12},{routeMinutes:20,routeMiles:19}]).routeMinutes===20,
+  searchOrderDoesNotControlSelection:routeApi.chooseRoutedCandidate('grocery',routeFixtureCandidates).name==='Walmart Supercenter',
+  walmartSupercenterIsValid:routeValidation.valid.some(value=>value.name==='Walmart Supercenter'),
+  convenienceRejected:routeValidation.rejected.some(value=>value.reason==='not-full-service-grocery'&&/Convenience/.test(value.candidate.name)),
+  fuelRejected:routeValidation.rejected.some(value=>value.reason==='fuel-station'),
+  distributionAndCorporateRejected:routeValidation.rejected.filter(value=>value.reason==='non-retail-facility').length===2,
+  neighborhoodAndRoadRejected:routeValidation.rejected.some(value=>value.reason==='non-destination-place'),
+  closedLocationRejected:routeValidation.rejected.some(value=>value.reason==='closed'),
+  practicalInStateOptionWins:routeApi.chooseRoutedCandidate('grocery',routeFixtureCandidates).stateCode==='TN',
+  genuineClosestOutOfStateAllowed:routeApi.chooseRoutedCandidate('grocery',[routeFixtureCandidates[0],{...routeFixtureCandidates[1],routeMinutes:28}]).stateCode==='KY',
+  suspiciousLongGroceryTriggersReview:routeApi.groceryRouteIsSuspicious({...routeFixtureCandidates[1],routeMinutes:50,routeMiles:38},routeFixtureCandidates),
+  failedRefreshPreservesPrevious:routeApi.automaticReplacement(previousRoute,null).route===previousRoute,
+  worseRefreshPreservesPrevious:routeApi.automaticReplacement(previousRoute,{...previousRoute,routeMinutes:25,routeMiles:18}).route===previousRoute,
+  manualLockWins:routeApi.automaticReplacement(manualRoute,{...previousRoute,routeMinutes:5,routeMiles:3}).reason==='manual-lock',
+  homeDepotWinsWithinFiveMinutes:homeDepot.selectedBrand==='Home Depot'&&homeDepot.evaluatedAlternative.name==="Lowe's",
+  tysIsFixed:routeApi.canonicalAirport({routeMinutes:70}).code==='TYS'&&routeApi.canonicalAirport({routeMinutes:70}).name==='McGhee Tyson Airport',
+  candidateAdapterUsesBoundedRadius:stabilizationSource.includes('radiusMiles')&&stabilizationSource.includes('bounded=1')&&stabilizationSource.includes('radii.fallback'),
+  routedTableEvaluatesMultipleCandidates:stabilizationSource.includes('/table/v1/driving/')&&stabilizationSource.includes('policy.config.candidateLimit'),
+  scoreRecalculationIsNotDuplicated:!app.match(/function updateOneProperty[^\n]+recalculateSimplifiedScoreForProperty/)&&app.includes('scheduleSimplifiedScoreRecalculation(activePropertyId,reason)'),
+  routeFormattingIsCentral:routeApi.formatMiles(7.84)==='7.8 mi'&&routeApi.formatMiles(28.4)==='28 mi'&&routeApi.formatDuration(74)==='1 hr 14 min'
+};
+add('Corrective route selection and preservation',{passed:Object.values(routingCorrectionChecks).every(Boolean),checks:routingCorrectionChecks});
+
+const improvedZillowText='Lot size: 50.61 acres\nBedrooms: 2\nFull bathrooms: 2\nBathrooms: 2\nLiving area: 1,152 sqft\nStructure area: 1,152 sqft\nYear built: 2018\nHome type: Single Family Residence\nHeating: Central\nCooling: Central air\nParking spaces: 2\nDetached carport, paved driveway\nMountain views\nWaterfront: Creek\nLevel, Private, Sloped, Wooded, Views\nBarns, Stables, Storage\nSeptic Tank\nWater: Public\nWater available\nElectric connected\nCable Connected, High Speed Internet\nAnnual taxes: $629';
+const routeSet=[routeApi.canonicalAirport({routeMinutes:58,routeMiles:43,source:'route-automation'}),{type:'grocery',category:'Grocery',name:'Walmart Supercenter',routeMinutes:18,routeMiles:12},{type:'hospital',category:'Hospital / emergency care',name:'Regional Hospital',routeMinutes:30,routeMiles:21},{type:'home-improvement',category:'Home improvement',name:'Home Depot',routeMinutes:28,routeMiles:20},{type:'costco',category:'Costco',name:'Costco',routeMinutes:62,routeMiles:51}];
+const improvedMapping=zillowContext.window.OTZillowFacts.applyToProperty({id:'OT-IMPROVED',name:'Improved fixture',address:'1 Fixture Rd, TN',lat:35.4,lng:-84.3,price:360000,propertyType:'raw-land',fieldSources:{propertyType:'inferred'},destinations:routeSet,propertyIntelligence:{propertyProfile:{additionalBuildSite:'likely',waterFeatureReliability:'unverified'}},development:{driveway:'unknown',homesite:'unknown',utilities:'unknown'},developmentCost:{well:'allowance',septic:'allowance'}},zillowContext.window.OTZillowFacts.parse(improvedZillowText));
+const improvedFixture=improvedMapping.property,improvedScore=intelligenceApi.getTurtleScore(improvedFixture),rawFixture={...JSON.parse(JSON.stringify(improvedFixture)),id:'OT-RAW',beds:0,baths:0,fullBathrooms:0,sqft:0,structureArea:0,yearBuilt:0,homeType:'',heating:'',cooling:'',parkingSpaces:0,propertyType:'raw-land',development:{driveway:'none',homesite:'unknown',utilities:'unknown'},developmentCost:{well:'allowance',septic:'allowance'},propertyIntelligence:{propertyProfile:{...improvedFixture.propertyIntelligence.propertyProfile,residenceStatus:'raw_land',existingResidencePresent:false,existingResidenceLivable:false,residenceCondition:'unknown',electric:'none',waterSource:'none',publicWater:'none',septicOrSewer:'none',septic:'none',internet:'none',cable:'none',driveway:'none',outbuildings:'none'},zillowLand:{...improvedFixture.propertyIntelligence.zillowLand,carport:'no',barn:'no',stable:'no',storageBuilding:'no'}}},rawScore=intelligenceApi.getTurtleScore(rawFixture),improvedReview=intelligenceApi.dataReview(improvedFixture),compareSource=app.slice(app.indexOf('function compareDevelopmentEstimate'),app.indexOf('function propertyIntelligenceSummary'));
+const zillowPropagationChecks={
+  parseNormalizeMapSaveShape:improvedMapping.updated.length>20&&improvedFixture.id==='OT-IMPROVED',
+  residenceStatusCanonical:improvedFixture.propertyIntelligence.propertyProfile.residenceStatus==='likely_livable',
+  homeFieldsPropagate:improvedFixture.beds===2&&improvedFixture.baths===2&&improvedFixture.sqft===1152&&improvedFixture.structureArea===1152&&improvedFixture.yearBuilt===2018,
+  connectedAndAvailableStayDistinct:improvedFixture.propertyIntelligence.propertyProfile.publicWater==='available'&&improvedFixture.propertyIntelligence.propertyProfile.waterSource==='available',
+  septicPresenceAndStatus:improvedFixture.propertyIntelligence.propertyProfile.septic==='recorded'&&improvedFixture.propertyIntelligence.propertyProfile.septicOrSewer==='recorded',
+  cableAndInternetPropagate:improvedFixture.propertyIntelligence.propertyProfile.cable==='verified'&&improvedFixture.propertyIntelligence.propertyProfile.internet==='verified',
+  terrainAttributesSeparate:['levelLand','private','slopedLand','wooded','mountainView'].every(field=>improvedFixture.propertyIntelligence.zillowLand[field]==='yes'),
+  creekAndMountainViewPropagate:improvedFixture.propertyIntelligence.propertyProfile.waterFeatureType==='creek'&&improvedFixture.propertyIntelligence.zillowLand.mountainView==='yes',
+  structuresRemainSeparate:['carport','barn','stable','storageBuilding'].every(field=>improvedFixture.propertyIntelligence.zillowLand[field]==='yes'),
+  dossierReadsCanonicalFacts:['residenceStatus','sqft','structureArea','waterSource','septicOrSewer','electric','internet','Structures:','Land:'].every(token=>stabilizationSource.includes(token)),
+  compareReadsCanonicalFacts:['TYS:','Acreage:','Existing house:','Living area:','Asking price:','Development estimate:'].every(token=>compareSource.includes(token)),
+  importedFactsDriveScoring:improvedScore.categories.find(value=>value.id==='existingHomeInfrastructure').score>=8&&improvedScore.categories.find(value=>value.id==='landCharacterPrivacy').score>5&&improvedScore.categories.find(value=>value.id==='recreationWaterFeatures').score>5,
+  developmentAssumptionsRespond:improvedFixture.development.homesite==='home'&&improvedFixture.development.driveway==='existing'&&improvedFixture.development.utilities==='onsite'&&improvedFixture.developmentCost.well==='existing-unverified'&&improvedFixture.developmentCost.septic==='existing-unverified',
+  answeredQuestionsRemoved:!improvedReview.allIssues.some(issue=>/acreage|whether water exists|whether septic exists|whether a structure exists/i.test(`${issue.code} ${issue.found}`)),
+  remainingQuestionsAreGenuine:improvedReview.allIssues.every(issue=>['livability','second-site-unknown','water-unverified','costs-missing','routes-missing'].includes(issue.code)||issue.code.startsWith('source-conflict-')),
+  repeatedRawTextIsIdempotent:zillowContext.window.OTZillowFacts.applyToProperty(improvedFixture,zillowContext.window.OTZillowFacts.parse(improvedZillowText)).updated.length===0,
+  manualSourcePrecedencePreserved:zillowContext.window.OTZillowFacts.applyToProperty({...improvedFixture,acres:42,fieldSources:{...improvedFixture.fieldSources,acres:'user-confirmed'}},zillowContext.window.OTZillowFacts.parse('Lot size: 50.61 acres')).property.acres===42,
+  likelyHomeMateriallyOutranksRaw:improvedScore.total>=rawScore.total+8,
+  nonLivableDoesNotReceiveFullCredit:intelligenceApi.calculateSimplifiedScorecard({...improvedFixture,propertyIntelligence:{...improvedFixture.propertyIntelligence,propertyProfile:{...improvedFixture.propertyIntelligence.propertyProfile,residenceStatus:'non_livable',existingResidenceLivable:false,residenceCondition:'major-rehabilitation'}}}).categories.existingHomeInfrastructure.autoScore<improvedScore.categories.find(value=>value.id==='existingHomeInfrastructure').score,
+  exceptionalRawSafeguardStillPasses:intelligenceApi.runRegressionChecks().checks.exceptionalVacantCanOutrankPoorImproved
+};
+add('Corrective Zillow propagation and home-value fixtures',{passed:Object.values(zillowPropagationChecks).every(Boolean),checks:zillowPropagationChecks});
+
+const compareCorrectionChecks={
+  onlySixCategoryBars:compareSource.includes('turtle.categories.map')&&!compareSource.includes('detailedScore'),
+  overallTurtleScoreShown:compareSource.includes('turtle.total'),
+  tysTimeShown:compareSource.includes("activeRoute?.(property,'airport')")&&compareSource.includes('formatDuration'),
+  houseStatusAndSizeShown:compareSource.includes('compareHouseLabel')&&compareSource.includes('residenceSquareFootage'),
+  acresPriceAndConditionalCostShown:compareSource.includes('property.acres')&&compareSource.includes('property.price')&&compareSource.includes('developmentEstimate!==null'),
+  reviewAndSourceDiagnosticsAbsent:!compareSource.includes('dataReview')&&!compareSource.includes('data-review')&&!compareSource.includes('Source:'),
+  secondaryProfileDetailsAbsent:!compareSource.includes('profileSummary')&&!compareSource.includes('profileBadges')&&!compareSource.includes('rankNote')&&!compareSource.includes('Baseline score'),
+  mobileWidthRulePresent:read('styles.css').includes('@media(max-width:760px){.compare-decision-grid{grid-template-columns:1fr}')
+};
+add('Compact Compare decision screen',{passed:Object.values(compareCorrectionChecks).every(Boolean),checks:compareCorrectionChecks});
 const automaticFactRecord={id:'OT-AUTO',name:'Automatic fixture',address:'1 Fact Rd',lat:35.4,lng:-84.3,acres:36,price:360000,propertyType:'existing-livable-home',site:{Driveway:'Existing',Electric:'Existing',Well:'$18k-$35k',Septic:'$12k-$25k'},development:{driveway:'existing',homesite:'prepared pad',utilities:'onsite'},notes:'Wooded private mountain setting with creek, trails, hunting, prepared pad, and a drive-by completed.',pros:['Strong recreation appeal','Existing residence'],cons:[],status:'Visited',scores:{Airport:70,Shopping:65,Value:65},destinations:[{name:'Airport',routeMinutes:60},{name:"Lowe's",routeMinutes:30},{name:'Home Depot',routeMinutes:40},{name:'Costco',routeMinutes:50},{name:'Grocery',routeMinutes:25},{name:'Hospital',routeMinutes:35}],propertyIntelligence:{scorecard:{ratings:{overallFeeling:{score:8}}},propertyProfile:{existingResidencePresent:true,existingResidenceLivable:true,residenceCondition:'livable',electric:'verified',waterSource:'verified-well',septicOrSewer:'verified',internet:'verified',driveway:'year-round',additionalBuildSite:'identified',additionalBuildSiteConfidence:'high',secondHomeAccess:'independent',utilityExtensionDifficulty:'low',multipleResidences:'permitted',woodedOpenMix:'mixed',slopeCharacter:'mixed-moderate',waterFeatureType:'creek',waterFeatureReliability:'verified-year-round',waterFloodRisk:'low'}}};
 const automaticCard=intelligenceApi.calculateSimplifiedScorecard(automaticFactRecord),emptyCard=intelligenceApi.calculateSimplifiedScorecard({}),straightLineCard=intelligenceApi.calculateSimplifiedScorecard({...automaticFactRecord,destinations:[{name:'Airport',miles:12}],scores:{Value:65}}),manualCard=intelligenceApi.calculateSimplifiedScorecard(automaticFactRecord,{categories:{landBuildability:{manualScore:2}}});
 const autoScoreChecks={allSixCategoriesScoreFromSavedFacts:Object.values(automaticCard.categories).every(value=>value.autoScore!==null),insufficientFactsStayExplicit:Object.values(emptyCard.categories).every(value=>value.autoScore===null&&value.confidence==='Not enough information'),routedMinutesScoreLocation:automaticCard.categories.locationConvenience.autoScore!==null,straightLineDistanceIgnored:straightLineCard.categories.locationConvenience.autoScore===null,legacyManualOverrideProtected:manualCard.categories.secondHomeBuildPotential.effectiveScore===2&&manualCard.categories.secondHomeBuildPotential.source==='manual',explanationsListFactsAndGaps:Object.values(automaticCard.categories).every(value=>Array.isArray(value.factsUsed)&&Array.isArray(value.missingFacts)),centralFactMappingAvailable:Object.keys(intelligenceApi.config.autoScoreFactMapping||{}).length===6,profileFactsStayOptional:intelligenceApi.normalizePropertyProfile({existingResidenceLivable:true}).existingResidenceLivable===true};
@@ -118,6 +199,7 @@ add('Scoring bounds and weights',scoringContext.window.OTScoring.runRegressionCh
 (async()=>{
   add('Elevation fixtures and cache',await terrainContext.window.OTElevationRegressionChecks.run());
   for(const result of results)console.log(`${result.passed?'PASS':'FAIL'} ${result.name} (${result.count} checks)`);
+  for(const result of results.filter(result=>!result.passed))console.error(`  Failed checks: ${Object.entries(result.checks).filter(([,passed])=>!passed).map(([name])=>name).join(', ')}`);
   const failed=results.filter(result=>!result.passed);
   if(failed.length){console.error(`Failed suites: ${failed.map(result=>result.name).join(', ')}`);process.exitCode=1;}
 })();
