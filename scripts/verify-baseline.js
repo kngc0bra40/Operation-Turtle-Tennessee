@@ -15,6 +15,8 @@ const integritySource=read('integrity.js');
 const elevationSource=read('elevation.js');
 const intelligenceSource=read('intelligence.js');
 const sourcePrecedenceSource=read('source-precedence.js');
+const propertyWorkflowSource=read('property-workflow.js');
+const smartImportSource=read('smart-import.js');
 const routePolicySource=read('route-policy.js');
 const zillowFactsSource=read('zillow-facts.js');
 const zillowMapperSource=read('zillow-mapper.js');
@@ -33,19 +35,44 @@ add('Planning undo and redo isolation',sourceContext.window.OTPlanningStabilityR
 add('Stability source guards',sourceContext.window.OTStabilitySourceChecks.runSources(app,planningSource,html));
 add('Cleanup source guards',sourceContext.window.OTCleanupRegressionChecks.runSource(app));
 
-const intelligenceContext={window:{},Math,Number,Object,Array,JSON,Date};
+const intelligenceContext={window:{addEventListener:()=>{}},document:makeDocument(),structuredClone,Math,Number,Object,Array,JSON,Date,setTimeout:()=>0};
 intelligenceContext.window.window=intelligenceContext.window;
 vm.createContext(intelligenceContext);
 vm.runInContext(sourcePrecedenceSource,intelligenceContext);
 vm.runInContext(routePolicySource,intelligenceContext);
 vm.runInContext(intelligenceSource,intelligenceContext);
+vm.runInContext(propertyWorkflowSource,intelligenceContext);
+add('Canonical Property workflow and Second Home Flexibility',intelligenceContext.window.OTPropertyWorkflow.runRegressionChecks());
+vm.runInContext(zillowFactsSource,intelligenceContext);
+vm.runInContext(smartImportSource,intelligenceContext);
+add('Smart Import 3.0 pure workflow',intelligenceContext.window.OTSmartImportCore.runRegressionChecks());
+const smartAfterSave=smartImportSource.slice(smartImportSource.indexOf('async function afterPropertySaved'),smartImportSource.indexOf('async function refreshPropertyData')),smartRefresh=smartImportSource.slice(smartImportSource.indexOf('async function refreshPropertyData'),smartImportSource.indexOf('function optionHtml')),profileSave=app.slice(app.indexOf('function savePropertyScorecardV3'),app.indexOf('savePropertyScorecard=savePropertyScorecardV3;')),profileDraft=app.slice(app.indexOf('function propertyProfileDraft'),app.indexOf('function intelligenceRecordWithProfile'));
+const smartIntegrationChecks={
+  modulesLoadInCanonicalOrder:html.indexOf('intelligence.js')<html.indexOf('property-workflow.js')&&html.indexOf('property-workflow.js')<html.indexOf('zillow-facts.js')&&html.indexOf('stabilization.js')<html.indexOf('smart-import.js'),
+  compactGuidedWorkflow:['Property basics','Zillow facts','Research','Routes','Review and save'].every(label=>smartImportSource.includes(label)),
+  proposedZillowFactsStayInWorkingState:!smartImportSource.slice(smartImportSource.indexOf('function parseZillow'),smartImportSource.indexOf('function sourcePath')).includes('OTPropertyStore'),
+  finalPropertySaveUsesVerifiedPipeline:app.includes("preparePropertyForSave?.(p)")&&app.includes("save({reason,collection:next,activePropertyId:p.id,recalculate:false})"),
+  smartImportRecalculatesOnce:(smartAfterSave.match(/recalculateSimplifiedScoreForProperty/g)||[]).length===1&&smartAfterSave.includes('{recalculate:false,reopen:false}'),
+  refreshRecalculatesOnce:(smartRefresh.match(/recalculateSimplifiedScoreForProperty/g)||[]).length===1&&smartRefresh.includes("'Refresh canonical property data',{recalculate:false}"),
+  refreshUsesStoredZillowFacts:smartRefresh.includes('zillowFacts?.current?.rawText')&&smartRefresh.includes('mergeZillowFacts(candidate,raw,[],[],{recordConflicts:false})'),
+  profileWritesCanonicalProperty:profileSave.includes("OTPropertyStore.update(property.id")&&profileSave.includes("'Save canonical Property Profile',{recalculate:false}"),
+  profileDraftStartsCanonical:profileDraft.includes('OTPropertyWorkflow?.profileForRecord?.(property,current)'),
+  profileFailureKeepsEditorOpen:profileSave.indexOf('if(!saved)')<profileSave.indexOf('closePropertyScorecard()')&&profileSave.includes('editor remains open'),
+  profileScoreFailureHasNoFalseSuccess:profileSave.indexOf('if(!scored)')<profileSave.indexOf('closePropertyScorecard()'),
+  legacyIntelligenceProfileIsNotRewritten:!profileSave.includes('propertyProfile:profile'),
+  dossierAndCompareReadCanonicalProfile:smartImportSource.includes('workflow.profileForRecord(property)')&&smartImportSource.includes('data-compare-flexibility'),
+  advancedToolsAreConsolidated:['Run Property Research','Reprocess Zillow Facts','Refresh routes','View import details','View source history'].every(label=>stabilizationSource.includes(label)||app.includes(label)),
+  preservedRoutesAreNotUnresolved:stabilizationSource.includes('unresolvedNeeds=needs.filter(label=>!preserved.includes(label))')&&stabilizationSource.includes('needsReview:unresolvedNeeds.length'),
+  newModulesHaveNoStartupStorageWrites:![propertyWorkflowSource,smartImportSource].some(source=>/localStorage\s*\.\s*(?:setItem|removeItem|clear)/.test(source))
+};
+add('Smart Import 3.0 integration wiring',{passed:Object.values(smartIntegrationChecks).every(Boolean),checks:smartIntegrationChecks});
 add('Property Intelligence scorecard, filters, and dashboard',intelligenceContext.window.OTPropertyIntelligenceRegressionChecks.run());
 add('Central source precedence',intelligenceContext.window.OTSourcePrecedence.runRegressionChecks());
 add('TYS route and Location policy',intelligenceContext.window.OTRoutePolicy.runRegressionChecks());
 const intelligenceApi=intelligenceContext.window.OTIntelligence;
 const zillowContext={window:{},structuredClone};zillowContext.window.window=zillowContext.window;vm.createContext(zillowContext);vm.runInContext(sourcePrecedenceSource,zillowContext);vm.runInContext(zillowFactsSource,zillowContext);vm.runInContext(zillowMapperSource,zillowContext);const zillowResult=zillowContext.window.OTZillowFacts.runRegressionChecks();delete zillowResult.checks.idempotent;zillowResult.checks.reprocessingHasNoDuplicateFields=new Set(zillowResult.parsed).size===zillowResult.parsed.length;zillowResult.checks.reprocessingHasNoDuplicateReviews=new Set(zillowResult.reviewItems.map(item=>item.code)).size===zillowResult.reviewItems.length;zillowResult.passed=Object.values(zillowResult.checks).every(Boolean);add('Zillow Facts end-to-end mapping',zillowResult);
 const stabilizationContext={window:{addEventListener:()=>{}},document:makeDocument(),MutationObserver:function(){this.observe=()=>{}},Number,Object,Array,JSON,Date,encodeURIComponent,setTimeout:()=>0,fetch:async()=>{throw new Error('Offline fixture environment')}};stabilizationContext.window.window=stabilizationContext.window;vm.createContext(stabilizationContext);vm.runInContext(sourcePrecedenceSource,stabilizationContext);vm.runInContext(routePolicySource,stabilizationContext);vm.runInContext(stabilizationSource,stabilizationContext);add('Stabilized property-specific routes',stabilizationContext.window.OTStabilization.runRegressionChecks());
-const compactUiChecks={mapLayersStartCollapsed:/id="layersPanel"[^>]*hidden/.test(html),mapLayerSelectionPersists:app.includes('persistMapLayerState')&&app.includes('applyMapLayerState'),mapLayersEscapeCloses:app.includes("event.key==='Escape'")&&app.includes('setLayersPanel(false)'),primaryDossierActions:stabilizationSource.includes("edit.textContent='Edit'")&&stabilizationSource.includes("paste.textContent='Paste Zillow Facts'")&&stabilizationSource.includes("more.className='dossier-more'"),secondaryActionsInMore:['Adjust property location','Research property','Refresh routes','County parcel map','Listing','Site Planning','Delete property'].every(label=>app.includes(label)||stabilizationSource.includes(label)),routeDatesCollapsed:stabilizationSource.includes('<details><summary>Details</summary>')&&!stabilizationSource.includes('checked ${safe'),mileagePrecisionCentral:routePolicySource.includes('function formatMiles'),reviewResolutionAction:app.includes('data-review-resolve')&&app.includes('resolvePropertyReview'),reviewShowAll:app.includes('review-show-all'),routeEditorEscape:stabilizationSource.includes("event.key==='Escape'"),mobileLayerPanel:read('styles.css').includes('@media(max-width:760px){.layers-panel')};
+const compactUiChecks={mapLayersStartCollapsed:/id="layersPanel"[^>]*hidden/.test(html),mapLayerSelectionPersists:app.includes('persistMapLayerState')&&app.includes('applyMapLayerState'),mapLayersEscapeCloses:app.includes("event.key==='Escape'")&&app.includes('setLayersPanel(false)'),primaryDossierActions:stabilizationSource.includes("editProfile.textContent='Edit Profile'")&&stabilizationSource.includes("refresh.textContent='Refresh Property Data'")&&stabilizationSource.includes("more.className='dossier-more'"),secondaryActionsInMore:['Edit all details','Reprocess Zillow Facts','Adjust property location','Research property','Refresh routes','County parcel map','Listing','Site Planning','Delete property'].every(label=>app.includes(label)||stabilizationSource.includes(label)),routeDatesCollapsed:stabilizationSource.includes('<details><summary>Details</summary>')&&!stabilizationSource.includes('checked ${safe'),mileagePrecisionCentral:routePolicySource.includes('function formatMiles'),reviewResolutionAction:app.includes('data-review-resolve')&&app.includes('resolvePropertyReview'),reviewShowAll:app.includes('review-show-all'),routeEditorEscape:stabilizationSource.includes("event.key==='Escape'"),mobileLayerPanel:read('styles.css').includes('@media(max-width:760px){.layers-panel')};
 add('Route review and compact UI wiring',{passed:Object.values(compactUiChecks).every(Boolean),checks:compactUiChecks});
 const routeApi=intelligenceContext.window.OTRoutePolicy;
 const routeFixtureCandidates=[
