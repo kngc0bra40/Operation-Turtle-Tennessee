@@ -1,10 +1,12 @@
-/* Smart Import 3.0 canonical-field and workflow helpers. Pure: no storage or startup writes. */
+/* V4.4 canonical property workflow helpers. Pure: no storage or startup writes. */
 (()=>{'use strict';
-const VERSION='3.0.0',precedence=window.OTSourcePrecedence;
+const VERSION='4.4.0',precedence=window.OTSourcePrecedence;
 const FLEXIBILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
 const BUILDABILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
 const SUBDIVISION_OPTIONS=['unknown','strong','possible','difficult','unlikely'];
 const PROFILE_FIELDS=['existingResidencePresent','existingResidenceLivable','residenceStatus','residenceCondition','electric','waterSource','septicOrSewer','internet','driveway','outbuildings','additionalBuildSite','additionalBuildSiteConfidence','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','secondHomeFlexibilityNote','utilityExtensionDifficulty','multipleResidences','woodedOpenMix','slopeCharacter','waterFeatureType','waterFeatureReliability','waterFloodRisk'];
+const MANUAL_PROPERTY_FIELDS=['name','status','visitStatus','propertyType','waterFeature','acres','price','beds','baths','sqft','notes'];
+const NUMERIC_PROPERTY_FIELDS=new Set(['acres','price','beds','baths','sqft']);
 const FIELD_REGISTRY=Object.freeze({
  acreage:'acres',residenceStatus:'propertyIntelligence.propertyProfile.residenceStatus',
  residenceCondition:'propertyIntelligence.propertyProfile.residenceCondition',
@@ -68,6 +70,25 @@ function applyProfileDraft(record,draft={}){
  next.propertyIntelligence={...(next.propertyIntelligence||{}),propertyProfile:profile};next.fieldSources=sources;next.updatedAt=new Date().toISOString();
  return {property:developmentFromProfile(next),changed:[...new Set(changed)]}
 }
+function applyManualDraft(record,{profile={},fields={}}={}){
+ const next=clone(record),sources={...(next.fieldSources||{})},changed=[],errors=[];
+ for(const key of MANUAL_PROPERTY_FIELDS){
+  if(!(key in fields))continue;
+  let value=fields[key];
+  if(NUMERIC_PROPERTY_FIELDS.has(key)){
+   if(value===''||value===null||value===undefined)value=0;
+   else if(!Number.isFinite(Number(value))||Number(value)<0){errors.push(`${key} must be zero or greater.`);continue}
+   else value=Number(value)
+  }else value=String(value??'').trim();
+  if(String(next[key]??'')===String(value??''))continue;
+  next[key]=value;sources[key]='user-confirmed';changed.push(key)
+ }
+ if(errors.length)return {property:clone(record),changed:[],errors};
+ next.fieldSources=sources;
+ const applied=applyProfileDraft(next,profile);
+ return {property:applied.property,changed:[...new Set([...changed,...applied.changed])],errors:[]}
+}
+function synchronizeRecord(record={}){return developmentFromProfile(record)}
 function applyProposals(record,proposals={},source='research',{explicit=false}={}){
  const next=clone(record),updated=[],conflicts=[];
  for(const [field,candidate] of Object.entries(proposals||{})){const path=canonicalPath(field),current=getAt(next,path),currentSource=canonicalSource(next,path),decision=precedence?.canReplace?.(current,currentSource,candidate,source,{explicit})||{allowed:current===undefined||current===null||current==='',source};if(decision.allowed){setAt(next,path,candidate);next.fieldSources={...(next.fieldSources||{}),[path]:decision.source||source};updated.push(path)}else if(decision.conflict){precedence?.preserveCandidate?.(next,path,candidate,source,'rejected');conflicts.push({field:path,current,candidate,source:currentSource})}}
@@ -80,7 +101,18 @@ function researchAssessment(record={}){
  return {status:missing.length?'partial':'complete',completed,missing,scope:RESEARCH_SCOPE.map(([,label])=>label)}
 }
 function applyResearchAssessment(record){const next=clone(record),assessment=researchAssessment(next),now=new Date().toISOString();next.propertyResearch={...(next.propertyResearch||{}),version:1,scope:assessment.scope,completed:assessment.completed,missing:assessment.missing,status:assessment.status,checkedAt:now,provider:'Saved facts and configured county-record links only'};next.researchStatus=assessment.status==='complete'?'Research complete':'Research partial';next.researchUpdatedAt=now;next.updatedAt=now;return {property:next,...assessment}}
-function completionSummary({zillow=0,zillowAction='imported',research='skipped',routes=0,scoreBefore=null,scoreAfter=null,reviewCount=0,partial=false}={}){return {status:partial?'partial':'complete',headline:partial?'Property saved with items still to verify':'Property created',items:[zillow?`${zillow} Zillow facts ${zillowAction}`:'Zillow facts skipped',`Property research ${research}`,routes?`${routes} routes verified`:'Routes not yet verified',Number.isFinite(scoreBefore)&&Number.isFinite(scoreAfter)?`Score updated from ${Math.round(scoreBefore)} to ${Math.round(scoreAfter)}`:'Score updated',`${reviewCount} ${reviewCount===1?'item':'items'} need review`]}}
+const conclusionRating=score=>score===null||score===undefined?'Needs information':score>=8.5?'Excellent':score>=7?'Good':score>=5?'Fair':'Limited';
+function propertyConclusions(record={}){
+ const turtle=window.OTIntelligence?.getTurtleScore?.(record),categories=turtle?.categories||[],find=id=>categories.find(item=>item.id===id),average=(...items)=>{const values=items.map(item=>item?.score).filter(value=>Number.isFinite(Number(value))).map(Number);return values.length?values.reduce((total,value)=>total+value,0)/values.length:null},support=(items,fallback)=>items.flatMap(item=>item?.reasons||[]).find(Boolean)||items.flatMap(item=>item?.warnings||[]).find(Boolean)||fallback;
+ const infrastructure=find('existingHomeInfrastructure'),land=find('landCharacterPrivacy'),second=find('secondHomeBuildPotential'),recreation=find('recreationWaterFeatures'),risk=find('costRiskPersonalFit'),developmentScore=average(second,risk),potentialScore=average(second,recreation);
+ return [
+  {id:'infrastructure',label:'Infrastructure',score:infrastructure?.score??null,rating:conclusionRating(infrastructure?.score),support:support([infrastructure],'Confirm the existing home and utility facts.')},
+  {id:'land',label:'Land Quality',score:land?.score??null,rating:conclusionRating(land?.score),support:support([land],'Add terrain, privacy, and land-character observations.')},
+  {id:'development',label:'Development Readiness',score:developmentScore,rating:conclusionRating(developmentScore),support:support([risk,second],'Confirm build-site, access, utility, and cost assumptions.')},
+  {id:'potential',label:'Property Potential',score:potentialScore,rating:conclusionRating(potentialScore),support:support([second,recreation],'Confirm recreation and additional-home potential.')}
+ ]
+}
+function completionSummary({research='skipped',routes=0,scoreBefore=null,scoreAfter=null,reviewCount=0,partial=false}={}){return {status:partial?'partial':'complete',headline:partial?'Property created with items to review':'Property created successfully',items:['Property profile updated',research==='complete'?'Research complete':'Research needs verification',routes>=5?'Routes verified':'Routes need verification',Number.isFinite(scoreBefore)&&Number.isFinite(scoreAfter)?`Score calculated (${Math.round(scoreAfter)})`:'Score calculated',`${reviewCount} ${reviewCount===1?'review item remains':'review items remain'}`]}}
 function runRegressionChecks(){
  const routes=[window.OTRoutePolicy.canonicalAirport({routeMinutes:48,routeMiles:36}),{category:'Grocery',routeMinutes:18,routeMiles:12},{category:'Hospital',routeMinutes:24,routeMiles:17},{category:'Home improvement',routeMinutes:26,routeMiles:19},{category:'Costco',routeMinutes:58,routeMiles:48}];
  const base={id:'fixture',name:'Fixture',address:'1 Test Rd, TN',lat:35.4,lng:-84.3,acres:30,price:360000,propertyType:'existing-livable-home',notes:'private wooded property with trails and hunting',destinations:routes,development:{driveway:'unknown',homesite:'unknown',utilities:'unknown'},fieldSources:{},propertyIntelligence:{propertyProfile:{}}};
@@ -89,7 +121,7 @@ function runRegressionChecks(){
  const raw=applyProfileDraft({...base,id:'raw',propertyType:'raw-land',beds:0,sqft:0},{existingResidencePresent:false,existingResidenceLivable:false,electric:'none',waterSource:'none',septicOrSewer:'none',internet:'none',driveway:'none',additionalBuildSite:'likely',secondHomeBuildability:'unknown',secondHomeAccess:'unknown',secondHomeSubdivisionPotential:'unknown',secondHomeFlexibility:'unknown'}).property;
  const noPath=applyProfileDraft({...complete,id:'no-path',acres:6},{additionalBuildSite:'not-viable',additionalBuildSiteConfidence:'not-viable',secondHomeBuildability:'unlikely',secondHomeAccess:'not-feasible',secondHomeSubdivisionPotential:'unlikely',secondHomeFlexibility:'unlikely',multipleResidences:'not-permitted'}).property;
  const manual=applyProfileDraft({...complete,id:'manual',acres:40,fieldSources:{...complete.fieldSources,acres:'user-confirmed'},destinations:[{...routes[0],source:'user-confirmed',locked:true},...routes.slice(1)]},{secondHomeFlexibility:'good'}).property;
- const refreshed=applyProposals(manual,{acreage:50.61,secondHomeFlexibility:'difficult'},'zillow'),roundTrip=JSON.parse(JSON.stringify(complete)),research=applyResearchAssessment(complete),summary=completionSummary({zillow:20,research:'partial',routes:5,scoreBefore:50,scoreAfter:70,reviewCount:2});
+ const refreshed=applyProposals(manual,{acreage:50.61,secondHomeFlexibility:'difficult'},'zillow'),manualRoot=applyManualDraft(complete,{fields:{acres:44,notes:'User confirmed note.'},profile:{driveway:'limited'}}),invalidManual=applyManualDraft(complete,{fields:{acres:-2}}),roundTrip=JSON.parse(JSON.stringify(complete)),research=applyResearchAssessment(complete),summary=completionSummary({research:'partial',routes:5,scoreBefore:50,scoreAfter:70,reviewCount:2,partial:true}),conclusions=propertyConclusions(complete);
  const completeScore=window.OTIntelligence.getTurtleScore(complete),sharedScore=window.OTIntelligence.getTurtleScore(shared),rawScore=window.OTIntelligence.getTurtleScore(raw),noPathScore=window.OTIntelligence.getTurtleScore(noPath),baseScore=window.OTIntelligence.getTurtleScore(base),completeFlex=completeScore.categories.find(item=>item.id==='secondHomeBuildPotential'),sharedFlex=sharedScore.categories.find(item=>item.id==='secondHomeBuildPotential'),rawFlex=rawScore.categories.find(item=>item.id==='secondHomeBuildPotential'),noPathFlex=noPathScore.categories.find(item=>item.id==='secondHomeBuildPotential');
  const unanswered={...raw,id:'review',propertyIntelligence:{...raw.propertyIntelligence,propertyProfile:{...raw.propertyIntelligence.propertyProfile,additionalBuildSite:'unknown'}}},reviewBefore=window.OTIntelligence.dataReview(unanswered),answered=applyProfileDraft(unanswered,{secondHomeFlexibility:'good'}).property,reviewAfter=window.OTIntelligence.dataReview(answered),likelyHome={...base,id:'likely-home',propertyIntelligence:{propertyProfile:{residenceStatus:'likely_livable',existingResidencePresent:true,existingResidenceLivable:null,residenceCondition:'unknown-condition'}}},homeReviewBefore=window.OTIntelligence.dataReview(likelyHome),confirmedHome=applyProfileDraft(likelyHome,{existingResidenceLivable:true,residenceCondition:'livable'}).property,homeReviewAfter=window.OTIntelligence.dataReview(confirmedHome),homeWarningsBefore=window.OTIntelligence.getTurtleScore(likelyHome).categories.find(item=>item.id==='existingHomeInfrastructure').warnings,homeWarningsAfter=window.OTIntelligence.getTurtleScore(confirmedHome).categories.find(item=>item.id==='existingHomeInfrastructure').warnings;
  const requiredRegistry=['acreage','residenceStatus','residenceCondition','residenceSquareFootage','structureArea','yearBuilt','waterSource','waterConnectionStatus','wellStatus','septicStatus','sewerStatus','electricStatus','internet','drivewayStatus','garage','carport','barn','stable','workshop','storage','wooded','private','level','sloped','mountainView','creek','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','routeRecords'];
@@ -115,11 +147,16 @@ function runRegressionChecks(){
   manualRouteRemainsLocked:manual.destinations[0].locked===true&&manual.destinations[0].source==='user-confirmed',
   researchDoesNotFabricate:research.missing.includes('Ownership')&&research.property.propertyResearch.provider.includes('Saved facts'),
   completionIsCompact:summary.items.length===5,
+  completionUsesPlainOutcomeLanguage:summary.headline==='Property created with items to review'&&summary.items[0]==='Property profile updated',
+  manualRootFieldsUseCanonicalStore:manualRoot.property.acres===44&&manualRoot.property.notes==='User confirmed note.'&&manualRoot.property.fieldSources.acres==='user-confirmed',
+  manualProfileAndDevelopmentStayConnected:manualRoot.property.propertyIntelligence.propertyProfile.driveway==='limited'&&manualRoot.property.development.driveway==='rough',
+  invalidManualDraftDoesNotMutate:invalidManual.errors.length===1&&invalidManual.property.acres===complete.acres,
+  conclusionsUseExistingSixCategories:conclusions.length===4&&conclusions.every(item=>['Excellent','Good','Fair','Limited','Needs information'].includes(item.rating)),
   profileAnswerRemovesRelatedReview:reviewBefore.allIssues.some(item=>item.code==='second-site-unknown')&&!reviewAfter.allIssues.some(item=>item.code==='second-site-unknown'),
   confirmedLivabilityUpdatesCanonicalStatus:confirmedHome.propertyIntelligence.propertyProfile.residenceStatus==='livable'&&homeWarningsBefore.some(item=>/confirm current livability/i.test(item))&&!homeWarningsAfter.some(item=>/confirm current livability/i.test(item)),
   allFixtureScoresBounded:[completeScore,sharedScore,rawScore,noPathScore].every(score=>score.total>=0&&score.total<=100)
  };
  return {passed:Object.values(checks).every(Boolean),checks,fixtures:{complete:completeScore.total,shared:sharedScore.total,raw:rawScore.total,noPath:noPathScore.total}}
 }
-window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,applyProfileDraft,applyProposals,researchAssessment,applyResearchAssessment,completionSummary,runRegressionChecks};
+window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,manualPropertyFields:MANUAL_PROPERTY_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,synchronizeRecord,applyProfileDraft,applyManualDraft,applyProposals,researchAssessment,applyResearchAssessment,propertyConclusions,completionSummary,runRegressionChecks};
 })();

@@ -7,10 +7,10 @@
 <meta name="description" content="Operation Turtle — East Tennessee property decision system">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Operation Turtle 4.3 Preview</title>
+<title>Operation Turtle 4.4 Preview</title>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=4.4.0">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-512.png">
 </head>
@@ -59,12 +59,12 @@
     <div id="propertyList" class="property-list"></div>
   </section>
   <section id="compareView" class="view">
-    <div class="compare-head"><div><h2>Property comparison</h2><p>Compare existing property scores and the optional Turtle Scorecard.</p></div><label class="compare-sort">Sort<select id="compareSort"><option value="turtleScore">Turtle Score</option><option value="price">Price</option><option value="pricePerAcre">Price / acre</option><option value="acreage">Acreage</option><option value="airportDistance">Airport distance</option><option value="favorite">Favorite</option><option value="status">Status</option></select></label></div>
+    <div class="compare-head"><div><h2>Property comparison</h2><p>Compare the decision facts that matter most.</p></div><label class="compare-sort">Sort<select id="compareSort"><option value="turtleScore">Turtle Score</option><option value="price">Price</option><option value="pricePerAcre">Price / acre</option><option value="acreage">Acreage</option><option value="airportDistance">Airport distance</option><option value="favorite">Favorite</option><option value="status">Status</option></select></label></div>
     <div id="compareTable" class="compare-cards"></div>
   </section>
   <section id="addView" class="view">
     <div class="form-page">
-      <div class="form-head"><div><h2 id="formTitle">Add property</h2><p>Paste a listing link. Smart Import will try to retrieve the page, fill the facts, and locate the property for review.</p></div><button id="closeAddBtn" class="form-close" type="button" aria-label="Close property form">✕</button></div>
+      <div class="form-head"><div><h2 id="formTitle">Add Property</h2><p>Create a complete property evaluation from one address or Zillow URL.</p></div><button id="closeAddBtn" class="form-close" type="button" aria-label="Close property form">✕</button></div>
       <div class="form-card">
         <div class="import-box">
           <div><strong>Property basics and listing details</strong><p>Enter a listing or address here. Smart Import keeps Zillow Facts, narrowed research, routes, and the final verified save in one progress panel.</p></div>
@@ -110,9 +110,9 @@
   <div class="settings-head"><div><h2>Property Dashboard</h2><p>Lightweight portfolio overview from saved property facts and scorecards.</p></div><button id="closeDashboardBtn" class="form-close" type="button" aria-label="Close dashboard">Close</button></div>
   <section class="settings-section"><div id="dashboardMetrics" class="dashboard-metrics" aria-live="polite"></div></section>
 </aside>
-<aside id="scorecardPanel" class="settings-panel intelligence-panel" hidden aria-label="Property Scorecard">
-  <div class="settings-head"><div><h2>Property Scorecard</h2><p id="scorecardPropertyLabel">Six practical categories combine automatic recommendations with your manual judgment.</p></div><button id="closeScorecardBtn" class="form-close" type="button" aria-label="Close Property Scorecard">Close</button></div>
-  <section class="settings-section"><div id="scorecardSummary" class="scorecard-summary" aria-live="polite"></div><div id="scorecardEditor" class="scorecard-editor"></div><div id="scorecardMessage" class="form-message" aria-live="polite"></div><div class="form-actions"><button id="cancelScorecardBtn" class="secondary outline" type="button">Cancel</button><button id="saveScorecardBtn" class="secondary" type="button">Save scorecard</button></div></section>
+<aside id="scorecardPanel" class="settings-panel intelligence-panel" hidden aria-label="Property Profile">
+  <div class="settings-head"><div><h2>Property Profile</h2><p id="scorecardPropertyLabel">Correct property facts here; every connected view updates after one verified save.</p></div><button id="closeScorecardBtn" class="form-close" type="button" aria-label="Close Property Profile">Close</button></div>
+  <section class="settings-section"><div id="scorecardSummary" class="scorecard-summary" aria-live="polite"></div><div id="scorecardEditor" class="scorecard-editor"></div><div id="scorecardMessage" class="form-message" aria-live="polite"></div><div class="form-actions"><button id="cancelScorecardBtn" class="secondary outline" type="button">Cancel</button><button id="saveScorecardBtn" class="secondary" type="button">Save Profile</button></div></section>
 </aside>
 <aside id="sitePlanningPanel" class="site-planning-panel" hidden aria-label="Site Planning workspace">
   <div class="settings-head"><div><h2>Site Planning</h2><p id="sitePlanningProperty">Property-specific satellite planning workspace.</p></div><button id="closeSitePlanningBtn" class="form-close" type="button" aria-label="Close Site Planning">✕</button></div>
@@ -148,13 +148,13 @@
 <script>window.OT_CONFIG={developerMode:false};</script>
 <script src="source-precedence.js?v=4.2.1" defer></script>
 <script src="route-policy.js?v=4.2.2" defer></script>
-<script src="intelligence.js?v=4.3.0" defer></script>
-<script src="property-workflow.js?v=4.3.0" defer></script>
-<script src="zillow-facts.js?v=4.3.0" defer></script>
+<script src="intelligence.js?v=4.4.0" defer></script>
+<script src="property-workflow.js?v=4.4.0" defer></script>
+<script src="zillow-facts.js?v=4.4.0" defer></script>
 <script src="zillow-mapper.js?v=4.2.1" defer></script>
 <script src="save-reliability.js" defer></script>
 <script src="diagnostics.js" defer></script>
-<script src="app.js?v=4.3.0" defer></script>
+<script src="app.js?v=4.4.0" defer></script>
 <script src="zillow-workflow.js?v=4.2.1" defer></script>
 <script src="precision.js?v=4.2.1" defer></script>
 <script src="integrity.js" defer></script>
@@ -162,7 +162,7 @@
 <script src="elevation.js" defer></script>
 <script src="p0-regression-checks.js" defer></script>
 <script src="recovery.js" defer></script>
-<script src="stabilization.js?v=4.3.0" defer></script>
-<script src="smart-import.js?v=4.3.0" defer></script>
+<script src="stabilization.js?v=4.4.0" defer></script>
+<script src="smart-import.js?v=4.4.0" defer></script>
 </body>
 </html>
