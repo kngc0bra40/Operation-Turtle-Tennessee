@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "source": "Fixture captured from the public Tennessee Comptroller / Sevier County parcel feature layer; polygon simplified only for deterministic testing.",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 83773,
+      "properties": {
+        "OBJECTID": 83773,
+        "GISLINK": "078123    01000",
+        "GISLINK2": "",
+        "PARCELID": "",
+        "DEEDAC": 45.76,
+        "ADDRESS": "HAPPY HOLLOW RD 2792",
+        "CITY": "SEVIERVILLE",
+        "STATE": "TN",
+        "ZIP": "37862",
+        "IMPVAL": 197100
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-83.6798400310, 35.7170327677],
+          [-83.6813236086, 35.7142015429],
+          [-83.6835634665, 35.7110570636],
+          [-83.6844015466, 35.7108901620],
+          [-83.6850533895, 35.7135835072],
+          [-83.6850440212, 35.7155381662],
+          [-83.6843752315, 35.7154074998],
+          [-83.6837295961, 35.7148172152],
+          [-83.6822000000, 35.7164000000],
+          [-83.6798400310, 35.7170327677]
+        ]]
+      }
+    }
+  ]
+}

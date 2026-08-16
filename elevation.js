@@ -136,6 +136,73 @@ function costAdjustments(profile={}){
   if(observedSteep>0)add('Drainage / cut-and-fill exposure',[observedSteep*3,observedSteep*7,observedSteep*14]);
   return {basis:'Measured elevation',components:components.filter(component=>component.range.some(Boolean)),routeLengthFeet:length};
 }
+function parcelGeometryFingerprint(geometry){
+  const rings=geometry?.type==='Polygon'?geometry.coordinates:geometry?.type==='MultiPolygon'?geometry.coordinates.flat():[];
+  const text=rings.flat().map(pair=>`${Number(pair?.[1]).toFixed(6)},${Number(pair?.[0]).toFixed(6)}`).join('|');
+  return text?`parcel-${hash(text)}-${rings.flat().length}`:'';
+}
+function parcelPolygons(geometry){
+  const raw=geometry?.type==='Polygon'?[geometry.coordinates]:geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  return raw.map(polygon=>polygon.map(ring=>ring.map(pair=>({lat:Number(pair?.[1]),lng:Number(pair?.[0])})).filter(isPoint)).filter(ring=>ring.length>=3)).filter(polygon=>polygon[0]?.length>=3);
+}
+function pointInRing(value,ring=[]){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const a=ring[i],b=ring[j],cross=(a.lat>value.lat)!==(b.lat>value.lat)&&value.lng<(b.lng-a.lng)*(value.lat-a.lat)/((b.lat-a.lat)||1e-12)+a.lng;
+    if(cross)inside=!inside;
+  }
+  return inside;
+}
+function pointInParcel(value,polygons=[]){return polygons.some(polygon=>pointInRing(value,polygon[0])&&!polygon.slice(1).some(hole=>pointInRing(value,hole)))}
+function sampleParcel(geometry,options={}){
+  const polygons=parcelPolygons(geometry),all=polygons.flat(2),maxSamples=Math.max(9,Math.min(64,Math.floor(num(options.maxSamples)||49)));
+  if(!all.length)return [];
+  const minLat=Math.min(...all.map(item=>item.lat)),maxLat=Math.max(...all.map(item=>item.lat)),minLng=Math.min(...all.map(item=>item.lng)),maxLng=Math.max(...all.map(item=>item.lng)),side=Math.max(3,Math.ceil(Math.sqrt(maxSamples*1.8))),points=[];
+  for(let row=0;row<side;row++)for(let column=0;column<side;column++){
+    const candidate={lat:minLat+(maxLat-minLat)*(row+.5)/side,lng:minLng+(maxLng-minLng)*(column+.5)/side};
+    if(pointInParcel(candidate,polygons))points.push(candidate);
+  }
+  polygons.forEach(polygon=>{const ring=polygon[0],centroid={lat:ring.reduce((sum,item)=>sum+item.lat,0)/ring.length,lng:ring.reduce((sum,item)=>sum+item.lng,0)/ring.length};if(pointInParcel(centroid,[polygon])&&!points.some(item=>haversineFeet(item,centroid)<20))points.unshift(centroid)});
+  return points.slice(0,maxSamples);
+}
+function contiguousCandidateZones(samples=[],parcelAcreage=null){
+  const gentle=samples.filter(sample=>sample.slopePct<=10);if(!gentle.length)return [];
+  const nearest=gentle.map(sample=>Math.min(...gentle.filter(other=>other!==sample).map(other=>haversineFeet(sample,other)).filter(Boolean),Infinity)).filter(Number.isFinite).sort((a,b)=>a-b),spacing=nearest[Math.floor(nearest.length/2)]||250,threshold=spacing*1.65,unvisited=new Set(gentle),groups=[];
+  while(unvisited.size){const seed=unvisited.values().next().value,group=[],queue=[seed];unvisited.delete(seed);while(queue.length){const current=queue.shift();group.push(current);for(const candidate of [...unvisited])if(haversineFeet(current,candidate)<=threshold){unvisited.delete(candidate);queue.push(candidate)}}groups.push(group)}
+  return groups.sort((a,b)=>b.length-a.length).slice(0,3).map((group,index)=>({id:`candidate-zone-${index+1}`,label:`Candidate Build Zone ${String.fromCharCode(65+index)}`,center:{lat:Number((group.reduce((sum,item)=>sum+item.lat,0)/group.length).toFixed(7)),lng:Number((group.reduce((sum,item)=>sum+item.lng,0)/group.length).toFixed(7))},sampleCount:group.length,averageSlopePct:Number((group.reduce((sum,item)=>sum+item.slopePct,0)/group.length).toFixed(1)),maximumSlopePct:Number(Math.max(...group.map(item=>item.slopePct)).toFixed(1)),approximateScreenedAcres:Number.isFinite(Number(parcelAcreage))?Number((Number(parcelAcreage)*group.length/samples.length).toFixed(2)):null,points:group.map(item=>({lat:item.lat,lng:item.lng})),classification:'Preliminary candidate zone – not an approved building site'}));
+}
+function summarizeParcelTerrain(points,elevations,details={}){
+  const samples=points.map((item,index)=>({...item,elevationFeet:Number(elevations[index])}));
+  samples.forEach((sample,index)=>{
+    const neighbors=samples.filter((_,other)=>other!==index).map(other=>({distance:haversineFeet(sample,other),change:Math.abs(sample.elevationFeet-other.elevationFeet)})).filter(item=>item.distance>0).sort((a,b)=>a.distance-b.distance).slice(0,3);
+    sample.slopePct=neighbors.length?Number((neighbors.reduce((sum,item)=>sum+item.change/item.distance*100,0)/neighbors.length).toFixed(1)):0;
+  });
+  const bandFor=slope=>slope<=5?'gentle':slope<=10?'moderate':slope<=15?'steep':slope<=20?'very-steep':'severe',gradeBands={gentle:0,moderate:0,steep:0,'very-steep':0,severe:0};
+  samples.forEach(item=>gradeBands[bandFor(item.slopePct)]++);
+  Object.keys(gradeBands).forEach(key=>{gradeBands[key]={sampleCount:gradeBands[key],percent:samples.length?Number((gradeBands[key]/samples.length*100).toFixed(1)):0}});
+  const values=samples.map(item=>item.elevationFeet),minimumElevationFeet=Math.round(Math.min(...values)),maximumElevationFeet=Math.round(Math.max(...values));
+  const slopeBandFor=slope=>slope<10?'under-10':slope<20?'10-20':slope<30?'20-30':'30-plus',slopeBands={'under-10':0,'10-20':0,'20-30':0,'30-plus':0};samples.forEach(item=>slopeBands[slopeBandFor(item.slopePct)]++);Object.keys(slopeBands).forEach(key=>{slopeBands[key]={sampleCount:slopeBands[key],percent:samples.length?Number((slopeBands[key]/samples.length*100).toFixed(1)):0}});
+  const candidateSamples=samples.filter(item=>item.slopePct<=10).sort((a,b)=>a.slopePct-b.slopePct||b.elevationFeet-a.elevationFeet).slice(0,6),candidateZones=contiguousCandidateZones(samples,details.parcelAcreage),steepSamples=samples.filter(item=>item.slopePct>15).sort((a,b)=>b.slopePct-a.slopePct).slice(0,6),drainageCandidates=samples.filter(item=>item.elevationFeet<=minimumElevationFeet+(maximumElevationFeet-minimumElevationFeet)*.15).slice(0,4);
+  const steepPct=gradeBands.steep.percent+gradeBands['very-steep'].percent+gradeBands.severe.percent,overallTerrainCharacter=steepPct>=55?'Predominantly steep with localized usable areas':steepPct>=25?'Mixed terrain with meaningful steep areas and localized benches':'Mostly lower-slope samples with localized steeper areas';
+  return {success:true,analysisType:'parcel-terrain-screen',source:details.source||'provider',provider:details.provider||USGS_3DEP_PROVIDER.name,providerId:details.providerId||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:details.geometryFingerprint,parcelCertainty:details.parcelCertainty||'verified-parcel-polygon',confidence:details.confidence||'preliminary-provider-derived',sampleCount:samples.length,samples,minimumElevationFeet,maximumElevationFeet,reliefFeet:maximumElevationFeet-minimumElevationFeet,averageSlopePct:Number((samples.reduce((sum,item)=>sum+item.slopePct,0)/samples.length).toFixed(1)),maximumLocalSlopePct:Number(Math.max(...samples.map(item=>item.slopePct)).toFixed(1)),gradeBands,slopeBands,overallTerrainCharacter,candidateSamples,candidateZones,steepSamples,drainageCandidates,limitations:'Preliminary parcel-wide sample screening only. Candidate zones are not approved building sites and do not establish parcel boundaries, drainage engineering, septic suitability, or construction approval.'};
+}
+async function screenParcelTerrain(geometry,options={}){
+  const fingerprint=parcelGeometryFingerprint(geometry),points=sampleParcel(geometry,options),cacheKey=`${fingerprint}:parcel`;
+  if(!fingerprint||points.length<5)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:'parcel-geometry-invalid',message:'A verified parcel Polygon or MultiPolygon is required before terrain screening.',retryable:false}};
+  const cached=cache.get(cacheKey);if(cached?.success)return {...clone(cached),cached:true};
+  let elevations=[];
+  if(typeof options.fixtureElevationFn==='function')elevations=points.map((value,index)=>Number(options.fixtureElevationFn(value,index,points)));
+  else if(Array.isArray(options.fixtureElevations)&&options.fixtureElevations.length===points.length)elevations=options.fixtureElevations.map(Number);
+  else{
+    const provider=options.provider||{...USGS_3DEP_PROVIDER,getPointElevation:usgsPointElevation},getPointElevation=provider.getPointElevation||usgsPointElevation,throttleMs=Math.max(100,num(options.throttleMs)||160);
+    try{for(let index=0;index<points.length;index++){if(index)await sleep(throttleMs);elevations.push(await getPointElevation(points[index],options))}}
+    catch(error){return {success:false,analysisType:'parcel-terrain-screen',source:'provider',provider:provider.name||USGS_3DEP_PROVIDER.name,providerId:provider.id||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:error?.code||'provider-unavailable',message:error?.message||'Parcel elevations are unavailable.',retryable:!!error?.retryable}}}
+  }
+  if(elevations.some(value=>!Number.isFinite(value)))return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:'no-elevation',message:'The provider returned incomplete parcel elevations.',retryable:true}};
+  const fixture=typeof options.fixtureElevationFn==='function'||Array.isArray(options.fixtureElevations),screen=summarizeParcelTerrain(points,elevations,{source:fixture?'fixture':'provider',provider:fixture?'Fixture elevation provider':USGS_3DEP_PROVIDER.name,providerId:fixture?'fixture':USGS_3DEP_PROVIDER.id,geometryFingerprint:fingerprint,parcelCertainty:options.parcelCertainty,parcelAcreage:options.parcelAcreage,confidence:fixture?'test-fixture':'preliminary-provider-derived'});
+  cache.set(cacheKey,clone(screen));return screen;
+}
 function clearCache(){cache.clear()}
 window.OTElevation={USGS_3DEP_PROVIDER,geometryFingerprint,sampleRoute,getElevationProfile,manualElevationFallback,costAdjustments,clearCache,gradeBands:[{key:'gentle',label:'0–5% gentle'},{key:'moderate',label:'over 5–10% moderate'},{key:'steep',label:'over 10–15% steep'},{key:'very-steep',label:'over 15–20% very steep'},{key:'severe',label:'over 20% severe'}]};
+Object.assign(window.OTElevation,{parcelGeometryFingerprint,sampleParcel,screenParcelTerrain,contiguousCandidateZones});
 })();

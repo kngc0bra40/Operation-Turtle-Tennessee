@@ -35,7 +35,7 @@ const FIELD_REGISTRY=Object.freeze({
  secondHomeFlexibilityNote:'propertyIntelligence.propertyProfile.secondHomeFlexibilityNote',
  routeRecords:'destinations'
 });
-const RESEARCH_SCOPE=Object.freeze([['parcel','County parcel record'],['ownership','Ownership'],['zoning','Zoning'],['multipleResidences','Multiple-residence rules'],['flood','Flood information'],['easements','Easements'],['permits','Permits'],['utilities','Utility verification'],['soilSeptic','Soil or septic records'],['restrictions','Legal restrictions'],['countyGis','County GIS'],['secondHome','Second-home feasibility']]);
+const RESEARCH_SCOPE=Object.freeze([['parcel','County parcel record'],['ownership','Ownership'],['zoning','Zoning'],['priorUse','Previous business or unusual use'],['multipleResidences','Multiple-residence rules'],['flood','Flood information'],['easements','Easements'],['permits','Permits'],['utilities','Utility verification'],['soilSeptic','Soil or septic records'],['restrictions','Legal restrictions'],['countyGis','County GIS'],['secondHome','Second-home feasibility']]);
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
 const clone=value=>structuredClone(value);
 const canonicalPath=field=>FIELD_REGISTRY[field]||field;
@@ -95,8 +95,22 @@ function applyProposals(record,proposals={},source='research',{explicit=false}={
  return {property:developmentFromProfile(next),updated,conflicts}
 }
 const meaningful=value=>Array.isArray(value)?value.length>0:value&&typeof value==='object'?Object.keys(value).length>0:String(value??'').trim()!==''&&String(value).toLowerCase()!=='unknown';
+function parcelCertainty(record={}){
+ const parcel=plain(record.parcel),intelligence=plain(record.parcelIntelligence),state=intelligence.state?.id||intelligence.state||'',geometry=record.parcelGeometry,hasGeometry=geometry&&['Polygon','MultiPolygon'].includes(geometry.type),geometrySource=canonicalSource(record,'parcelGeometry');
+ if(state==='multi-parcel-property'&&hasGeometry)return {id:'verified-parcel-polygon',stateId:state,label:'Multi-parcel property',terrainEligible:true};
+ if(state==='user-corrected'&&hasGeometry)return {id:'user-adjusted-parcel',stateId:state,label:'User-corrected parcel',terrainEligible:true};
+ if(state==='verified-gis-parcel'&&hasGeometry)return {id:'verified-parcel-polygon',stateId:state,label:'Verified GIS parcel',terrainEligible:true};
+ if(state==='parcel-match')return {id:'parcel-matched',stateId:state,label:'Parcel match',terrainEligible:false};
+ if(state==='approximate-parcel')return {id:'approximate-parcel',stateId:state,label:'Approximate parcel',terrainEligible:false};
+ if(hasGeometry&&precedence?.normalizeSource?.(geometrySource)==='user-confirmed')return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};
+ if(Array.isArray(record.boundary)&&record.boundary.length>=3)return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};
+ if(hasGeometry)return {id:'verified-parcel-polygon',label:'Verified parcel polygon',terrainEligible:true};
+ if(/approximate/i.test(String(parcel.matchStatus||parcel.confidence||'')))return {id:'approximate-parcel',label:'Approximate parcel',terrainEligible:false};
+ if(parcel.parcelId||record.parcelNumber)return {id:'parcel-matched',label:'Parcel matched',terrainEligible:false};
+ return {id:'address-point-only',label:'Address point only',terrainEligible:false};
+}
 function researchAssessment(record={}){
- const profile=profileForRecord(record),parcel=plain(record.parcel),facts={parcel:parcel.parcelId||record.parcelNumber,ownership:record.owner||record.ownership,zoning:record.zoning,multipleResidences:profile.multipleResidences!=='unknown'&&profile.multipleResidences,flood:record.floodInfo||record.floodplain||profile.waterFloodRisk!=='unknown'&&profile.waterFloodRisk,easements:record.easements,permits:record.permits,utilities:[profile.electric,profile.waterSource,profile.septicOrSewer].some(value=>!['unknown',''].includes(value))&&'recorded',soilSeptic:record.soilReport||record.septicRecords,restrictions:record.restrictions,countyGis:parcel.gisUrl||parcel.recordUrl,secondHome:[profile.secondHomeFlexibility,profile.secondHomeBuildability,profile.secondHomeAccess,profile.secondHomeSubdivisionPotential].some(value=>value&&value!=='unknown')&&'recorded'};
+ const profile=profileForRecord(record),parcel=plain(record.parcel),facts={parcel:parcel.parcelId||record.parcelNumber,ownership:record.owner||record.ownership,zoning:record.zoning,priorUse:record.priorUse?.name||record.priorUse,multipleResidences:profile.multipleResidences!=='unknown'&&profile.multipleResidences,flood:record.floodInfo||record.floodplain||profile.waterFloodRisk!=='unknown'&&profile.waterFloodRisk,easements:record.easements,permits:record.permits,utilities:[profile.electric,profile.waterSource,profile.septicOrSewer].some(value=>!['unknown',''].includes(value))&&'recorded',soilSeptic:record.soilReport||record.septicRecords,restrictions:record.restrictions,countyGis:parcel.gisUrl||parcel.recordUrl,secondHome:[profile.secondHomeFlexibility,profile.secondHomeBuildability,profile.secondHomeAccess,profile.secondHomeSubdivisionPotential].some(value=>value&&value!=='unknown')&&'recorded'};
  const completed=RESEARCH_SCOPE.filter(([key])=>meaningful(facts[key])).map(([,label])=>label),missing=RESEARCH_SCOPE.filter(([key])=>!meaningful(facts[key])).map(([,label])=>label);
  return {status:missing.length?'partial':'complete',completed,missing,scope:RESEARCH_SCOPE.map(([,label])=>label)}
 }
@@ -111,6 +125,30 @@ function propertyConclusions(record={}){
   {id:'development',label:'Development Readiness',score:developmentScore,rating:conclusionRating(developmentScore),support:support([risk,second],'Confirm build-site, access, utility, and cost assumptions.')},
   {id:'potential',label:'Property Potential',score:potentialScore,rating:conclusionRating(potentialScore),support:support([second,recreation],'Confirm recreation and additional-home potential.')}
  ]
+}
+function decisionSummary(record={}){
+ const turtle=window.OTIntelligence?.getTurtleScore?.(record)||{total:0,confidencePercentage:0,categories:[]},profile=profileForRecord(record),land=plain(record.propertyIntelligence?.zillowLand),certainty=parcelCertainty(record),home=profile.existingResidencePresent===true||Number(record.beds)>0||Number(record.sqft)>0,why=[],worries=[],unknown=[];
+ if(home)why.push(`${Number(record.sqft)>0?Number(record.sqft).toLocaleString()+' sq ft ':''}existing residence`);
+ if(Number(record.acres)>=20)why.push(`${Number(record.acres).toLocaleString()} acres with privacy and use-separation potential`);
+ if([profile.electric,profile.waterSource,profile.septicOrSewer,profile.driveway].filter(value=>value&&value!=='unknown'&&value!=='none').length>=3)why.push('established home-area infrastructure');
+ if(profile.outbuildings==='multiple'||land.climateControlledBuilding==='yes')why.push('multiple reusable developed structures');
+ if(land.establishedTrails==='yes'||land.recreationalUse==='yes')why.push('established trails and prior recreational use');
+ if(['creek','spring','pond','river','multiple'].includes(profile.waterFeatureType))why.push(profile.waterFeatureType==='multiple'?'multiple water features':profile.waterFeatureType);
+ if(land.nationalParkAdjacency==='yes')why.push('corroborated National Park adjacency');
+ if(profile.residenceCondition==='major-rehabilitation')worries.push('the residence requires major rehabilitation');
+ if(profile.slopeCharacter==='steep-limiting')worries.push('saved terrain facts identify steep, limiting slopes');
+ if(['moderate','high'].includes(profile.waterFloodRisk))worries.push('saved flood or drainage risk is elevated');
+ if(record.propertyResearch?.background?.terrainEvidence)worries.push('independent recreation sources describe very hilly terrain and significant elevation change');
+ if(!certainty.terrainEligible)unknown.push('the actual parcel polygon and parcel-wide terrain');
+ if(profile.additionalBuildSite==='unknown')unknown.push('a practical second build site');
+ if(profile.secondHomeAccess==='unknown')unknown.push('independent second-home or subdivision access');
+ if(profile.secondHomeSubdivisionPotential==='unknown')unknown.push('subdivision feasibility');
+ if(profile.septicOrSewer!=='none'&&profile.secondHomeBuildability==='unknown')unknown.push('second-home septic and soil feasibility; existing septic is a separate recorded fact');
+ if(land.establishedTrails==='yes'&&land.sxsSuitability!=='confirmed')unknown.push('SxS trail width, grade, and access suitability');
+ const headline=turtle.total>=75?`Strong Candidate${turtle.confidencePercentage<80?' – Research Incomplete':''}`:turtle.total>=65?`Promising Candidate${turtle.confidencePercentage<80?' – Research Incomplete':''}`:'Research Candidate';
+ const subject=[Number(record.acres)>0?`${Number(record.acres).toLocaleString()} acres`:'This property',home?'with an existing residence':''].filter(Boolean).join(' '),supporting=why.filter(item=>!/^\d[\d,.]* acres\b/i.test(item)&&!/existing residence$/i.test(item)).slice(0,3),summary=`${subject}${supporting.length?`, ${supporting.join(', ')}`:''}. ${unknown.length?`Primary unresolved questions are ${unknown.slice(0,3).join(', ')}.`:'Core suitability facts are well supported.'}`;
+ const recommendedNext=!certainty.terrainEligible?'Match and verify the parcel polygon before relying on terrain or candidate build areas.':!record.sitePlanning?.terrainScreening?.success?'Run the automatic parcel terrain screen, then inspect its low-slope candidate areas.':profile.additionalBuildSite==='unknown'?'Field-check the best low-slope candidate for access, soils, septic, drainage, and setbacks.':'Verify the highest-priority unresolved legal or site-feasibility question.';
+ return {headline,summary,why:[...new Set(why)].slice(0,6),worries:[...new Set(worries)].slice(0,4),unknown:[...new Set(unknown)].slice(0,6),recommendedNext,parcelCertainty:certainty,score:turtle.total,confidencePercentage:turtle.confidencePercentage||0,confidenceStatus:turtle.confidenceStatus||'Research incomplete'};
 }
 function completionSummary({research='skipped',routes=0,scoreBefore=null,scoreAfter=null,reviewCount=0,partial=false}={}){return {status:partial?'partial':'complete',headline:partial?'Property created with items to review':'Property created successfully',items:['Property profile updated',research==='complete'?'Research complete':'Research needs verification',routes>=5?'Routes verified':'Routes need verification',Number.isFinite(scoreBefore)&&Number.isFinite(scoreAfter)?`Score calculated (${Math.round(scoreAfter)})`:'Score calculated',`${reviewCount} ${reviewCount===1?'review item remains':'review items remain'}`]}}
 function runRegressionChecks(){
@@ -158,5 +196,5 @@ function runRegressionChecks(){
  };
  return {passed:Object.values(checks).every(Boolean),checks,fixtures:{complete:completeScore.total,shared:sharedScore.total,raw:rawScore.total,noPath:noPathScore.total}}
 }
-window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,manualPropertyFields:MANUAL_PROPERTY_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,synchronizeRecord,applyProfileDraft,applyManualDraft,applyProposals,researchAssessment,applyResearchAssessment,propertyConclusions,completionSummary,runRegressionChecks};
+window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,manualPropertyFields:MANUAL_PROPERTY_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,synchronizeRecord,applyProfileDraft,applyManualDraft,applyProposals,parcelCertainty,researchAssessment,applyResearchAssessment,propertyConclusions,decisionSummary,completionSummary,runRegressionChecks};
 })();

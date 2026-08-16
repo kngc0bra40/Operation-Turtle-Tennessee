@@ -122,9 +122,10 @@
   const profileFor=record=>normalizePropertyProfile(record.propertyIntelligence?.propertyProfile||record.propertyProfile);
   const textFacts=record=>[
     record.notes,...(Array.isArray(record.pros)?record.pros:[]),...(Array.isArray(record.cons)?record.cons:[]),
-    record.parcel?.notes,record.locationVerification?.source,record.propertyType,
+    record.listingDescription,record.description,record.priorUse?.name,record.priorUse?.type,record.parcel?.notes,record.locationVerification?.source,record.propertyType,
     ...Object.values(plainObject(record.investment)),...Object.values(plainObject(record.site)),
-    ...Object.values(plainObject(record.development)),...Object.values(plainObject(record.infrastructure))
+    ...Object.values(plainObject(record.development)),...Object.values(plainObject(record.infrastructure)),
+    ...Object.entries(plainObject(record.propertyIntelligence?.zillowLand)).filter(([,value])=>value==='yes'||Number(value)>0).map(([key])=>key.replace(/([A-Z])/g,' $1'))
   ].filter(value=>typeof value==='string').join(' ').toLowerCase();
   const includesAny=(text,terms)=>terms.some(term=>text.includes(term));
   const existingStructureRecorded=record=>Boolean(Number(record.beds)||Number(record.sqft)||Number(record.propertyIntelligence?.propertyProfile?.residenceSquareFootage)||/existing-(livable|home|cabin|structure)|cabin|dwelling|residence|home needing renovation|barn|shop/.test(`${record.propertyType||''} ${textFacts(record)}`));
@@ -325,8 +326,13 @@
     if(buildSite==='identified'){score+=2.3;facts++;reasons.push('An additional build site is identified.');}
     else if(buildSite==='likely'){score+=1.3;facts++;reasons.push('An additional build site appears likely.');}
     else if(buildSite==='not-viable'){score=1.2;facts++;warnings.push('A realistic additional build site is recorded as not viable.');}
-    else if(practicalHomesiteRecorded(String(legacySite).toLowerCase(),text)){score+=.9;facts++;reasons.push('A saved pad or build-site fact supports second-home potential.');}
+    else if(String(legacySite).toLowerCase()!=='home'&&practicalHomesiteRecorded(String(legacySite).toLowerCase(),text)){score+=.9;facts++;reasons.push('A saved pad or build-site fact supports second-home potential.');}
     else warnings.push('Additional build-site location, soil, and septic feasibility need verification.');
+    const home=existingHomeFacts(record,profile),land=plainObject(record.propertyIntelligence?.zillowLand);
+    if(home.present&&(home.livable||home.likelyLivable)&&home.recordedCount>=3){score+=.45;facts++;reasons.push('Existing housing and infrastructure support occupancy while future options are evaluated.');}
+    if(profile.outbuildings==='multiple'||land.climateControlledBuilding==='yes'){score+=.35;facts++;reasons.push('Multiple developed structures add reuse flexibility.');}
+    if(Number(land.glampingPlatforms)>0){score+=.3;facts++;reasons.push('Existing glamping platforms add guest-use flexibility, subject to legal verification.');}
+    if(land.recreationalUse==='yes'||record.priorUse?.name){score+=.2;facts++;reasons.push('A prior recreational use demonstrates adaptable land improvements without assigning business value.');}
     if(profile.secondHomeBuildability==='excellent'){score+=.8;facts++;reasons.push('Physical second-home buildability is rated excellent by the user.');}
     else if(profile.secondHomeBuildability==='good'){score+=.4;facts++;reasons.push('Physical second-home buildability is rated good by the user.');}
     else if(profile.secondHomeBuildability==='difficult'){score-=.7;facts++;warnings.push('Physical second-home buildability is rated difficult.');}
@@ -360,7 +366,7 @@
   }
 
   function ruleLandCharacterPrivacy(record){
-    const profile=profileFor(record),text=textFacts(record),acres=Number(record.acres),reasons=[],warnings=[];
+    const profile=profileFor(record),text=textFacts(record),land=plainObject(record.propertyIntelligence?.zillowLand),acres=Number(record.acres),reasons=[],warnings=[];
     let score=acreageBase(acres),facts=score===null?0:1;
     if(score===null&&!includesAny(text,['privacy','rural','wood','tree','view','mountain','secluded']))return {autoScore:null,confidence:'Not enough information',reasons,warnings:['No acreage or land-character observations are recorded.']};
     score=score??5;
@@ -374,6 +380,7 @@
     const positives=['privacy','secluded','rural','wood','timber','tree cover','mountain view','view'];
     const negatives=['neighbor','nearby homes','road noise','traffic','visible from road'];
     if(includesAny(text,positives)){score+=.9;facts++;reasons.push('Saved observations describe privacy, cover, rural setting, or views.');}
+    if(land.nationalParkAdjacency==='yes'){score+=.55;facts++;reasons.push('Corroborated National Park adjacency supports privacy and setting value.');}
     if(includesAny(text,negatives)){score-=1;facts++;warnings.push('Saved observations identify a neighbor, visibility, or road-noise concern.');}
     if(acres>=30)reasons.push('Acreage supports separation between uses.');
     if(profile.woodedOpenMix==='unknown')warnings.push('Wooded/open balance and usable areas need field verification.');
@@ -381,13 +388,18 @@
   }
 
   function ruleRecreationWaterFeatures(record){
-    const profile=profileFor(record),text=textFacts(record),acres=Number(record.acres),reasons=[],warnings=[];
+    const profile=profileFor(record),text=textFacts(record),land=plainObject(record.propertyIntelligence?.zillowLand),acres=Number(record.acres),reasons=[],warnings=[];
     let score=Number.isFinite(acres)&&acres>0?(acres<10?3.5:acres<20?5:acres<30?6:7):null,facts=score===null?0:1;
     if(score!==null)reasons.push('Acreage provides a starting point for on-site recreation.');
-    const recreationTerms=['trail','atv','sxs','hunting','hike','shoot','woods','timber','open ground'];
-    if(includesAny(text,recreationTerms)){score=(score??5)+1.15;facts++;reasons.push('Saved observations identify recreation, trails, hunting, woods, or usable ground.');}
+    const recreationTerms=['hunting','hike','shoot','woods','timber','open ground'];
+    if(includesAny(text,recreationTerms)){score=(score??5)+.65;facts++;reasons.push('Saved observations identify hunting, woods, hiking, or usable recreational ground.');}
+    if(land.establishedTrails==='yes'){score=(score??5)+.9;facts++;reasons.push('An established trail network is recorded.');}
+    if(land.recreationalUse==='yes'||record.priorUse?.type==='recreational'){score=(score??5)+.55;facts++;reasons.push('Prior recreational land use is corroborated.');}
+    if(land.sxsSuitability==='confirmed'){score=(score??5)+.35;facts++;reasons.push('SxS suitability is separately recorded as confirmed.');}
+    else if(land.establishedTrails==='yes')warnings.push('Established trails do not establish SxS width, grade, or access suitability.');
+    if(land.nationalParkAdjacency==='yes'){score=(score??5)+.35;facts++;reasons.push('National Park adjacency adds recreation-setting value.');}
     const water=profile.waterFeatureType!=='unknown'?profile.waterFeatureType:String(record.waterFeature||'').toLowerCase();
-    if(['creek','spring','pond','river','multiple'].includes(water)){score=(score??5)+(water==='multiple'?1.9:1.3);facts++;reasons.push(`${water==='multiple'?'Multiple water features':water[0].toUpperCase()+water.slice(1)} are recorded.`);}
+    if(['creek','spring','pond','river','multiple'].includes(water)){score=(score??5)+(water==='multiple'?1.9:1.3);facts++;reasons.push(water==='multiple'?'Multiple water features are recorded.':`${water[0].toUpperCase()+water.slice(1)} is recorded.`);}
     else if(water==='seasonal-drainage'||water==='seasonal'){score=(score??5)+.35;facts++;warnings.push('A seasonal drainage feature is recorded; reliability is limited.');}
     if(profile.waterFeatureReliability==='verified-year-round'){score=(score??5)+.75;facts++;reasons.push('Water feature is recorded as verified year-round.');}
     else if(profile.waterFeatureReliability==='unverified')warnings.push('Water-feature reliability remains unverified.');
@@ -456,6 +468,8 @@
     const feeling=clampScore(record.propertyIntelligence?.scorecard?.ratings?.overallFeeling?.score??record.scorecard?.ratings?.overallFeeling?.score);
     if(feeling!==null){score=(score??5)+(feeling-5)*.18;facts++;reasons.push('Saved Overall Feeling is included without replacing cost and risk facts.');}
     const positives=Array.isArray(record.pros)?record.pros.filter(Boolean).length:0,negatives=Array.isArray(record.cons)?record.cons.filter(Boolean).length:0;
+    const land=plainObject(record.propertyIntelligence?.zillowLand);
+    if(profile.outbuildings==='multiple'||land.climateControlledBuilding==='yes'||Number(land.glampingPlatforms)>0){score=(score??5)+.35;facts++;reasons.push('Reusable structures and guest-use improvements add flexibility without assuming transferable business value.');}
     if(positives){score=(score??5)+Math.min(.45,positives*.12);facts++;reasons.push('Personal strengths are recorded.');}
     if(negatives){score=(score??5)-Math.min(.55,negatives*.15);facts++;warnings.push('Personal concerns are recorded.');}
     if(score===null)return {autoScore:null,confidence:'Not enough information',reasons,warnings:['Asking price, development-cost, risk, or personal-fit facts are not yet recorded.']};
@@ -526,14 +540,14 @@
       const value=scorecard.categories[category.id];
       return {...category,...value,score:value.effectiveScore,contribution:0};
     });
-    const rated=categories.filter(category=>category.score!==null),ratedWeight=rated.reduce((sum,category)=>sum+category.weight,0);
-    const rawTotal=ratedWeight?rated.reduce((sum,category)=>sum+(category.score/10)*(category.weight/ratedWeight)*100,0):0;
-    categories.forEach(category=>{category.contribution=category.score===null?0:Number(((category.score/10)*(ratedWeight?category.weight/ratedWeight:0)*100).toFixed(2));});
-    const critical=categories.filter(category=>['existingHomeInfrastructure','secondHomeBuildPotential','costRiskPersonalFit'].includes(category.id));
-    const criticalLow=critical.some(category=>category.confidence==='Low'||category.confidence==='Not enough information');
-    const highCount=categories.filter(category=>category.confidence==='High').length;
-    // Confidence describes evidence quality only. A missing secondary fact does not lower a well-supported home to Low.
-    const overallConfidence=!rated.length||criticalLow?'Low':highCount>=3?'High':'Medium';
+    const rated=categories.filter(category=>category.score!==null),ratedWeight=rated.reduce((sum,category)=>sum+category.weight,0),hasEvidence=rated.length>0;
+    // Unknown categories are neutral (5/10) once any evidence exists. They are not silently
+    // reweighted away and they are not treated as confirmed negatives.
+    const neutralScore=5,rawTotal=hasEvidence?categories.reduce((sum,category)=>sum+((category.score??neutralScore)/10)*category.weight,0):0;
+    categories.forEach(category=>{category.contribution=hasEvidence?Number((((category.score??neutralScore)/10)*category.weight).toFixed(2)):0;category.contributionBasis=category.score===null?'neutral-unknown':'known-evidence';});
+    // Confidence describes evidence completeness only; it does not alter suitability.
+    const confidenceValue={High:100,Medium:70,Low:40,'Not enough information':0},confidencePercentage=hasEvidence?Math.round(categories.reduce((sum,category)=>sum+confidenceValue[category.confidence]*category.weight,0)/100):0;
+    const overallConfidence=confidencePercentage>=80?'High':confidencePercentage>=50?'Medium':'Low';
     const profile=profileFor(record),safeguards=[];
     let total=rawTotal;
     const home=categories.find(category=>category.id==='existingHomeInfrastructure'),otherRated=categories.filter(category=>category.id!=='existingHomeInfrastructure'&&category.score!==null);
@@ -546,7 +560,7 @@
       safeguards.push('Overall score is capped because the saved facts identify no viable second-home path.');
     }
     total=Number(Math.max(0,Math.min(100,total)).toFixed(2));
-    return {total,percentage:total,ratedCount:rated.length,ratedWeight,categories,scorecard,overallConfidence,
+    return {total,percentage:total,ratedCount:rated.length,ratedWeight,categories,scorecard,overallConfidence,confidencePercentage,confidenceStatus:confidencePercentage>=80?'Well supported':confidencePercentage>=50?'Preliminary':'Research incomplete',
       incomplete:rated.length<SIMPLIFIED_SCORECARD_CATEGORIES.length,overallExplanation:buildOverallExplanation(categories,overallConfidence,safeguards)};
   }
   function getTurtleScore(record={}){const simplified=simplifiedTurtleScore(record),detailed=detailedTurtleScore(record);return {...simplified,detailedScorecard:detailed.scorecard,detailedScore:detailed};}

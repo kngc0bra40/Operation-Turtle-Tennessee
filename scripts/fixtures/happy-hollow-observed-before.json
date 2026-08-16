@@ -1,0 +1,22 @@
+{
+  "fixturePurpose": "Preserve the user-observed Happy Hollow result before the benchmark reliability correction.",
+  "capturedAt": "2026-08-13T11:46:19.000Z",
+  "source": "User-observed application result; no browser storage was accessed.",
+  "property": {
+    "address": "2792 Happy Hollow Rd, Sevierville, TN 37862",
+    "turtleScore": 65.7,
+    "confidence": "Low",
+    "askingPrice": null,
+    "acreage": 45.76,
+    "terrainScreeningStatus": "Not screened",
+    "priorUse": null,
+    "sitePlanningStatus": "Largely empty"
+  },
+  "observedGaps": [
+    "Price was not populated correctly.",
+    "Terrain was not screened.",
+    "Several known infrastructure facts were treated as missing.",
+    "Prior business use was not discovered.",
+    "Site Planning was largely empty."
+  ]
+}

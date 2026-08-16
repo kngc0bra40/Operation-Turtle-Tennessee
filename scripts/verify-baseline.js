@@ -19,6 +19,10 @@ const propertyWorkflowSource=read('property-workflow.js');
 const smartImportSource=read('smart-import.js');
 const routePolicySource=read('route-policy.js');
 const zillowFactsSource=read('zillow-facts.js');
+const propertyResearchSource=read('property-research.js');
+const listingInputSource=read('listing-input.js');
+const parcelIntelligenceSource=read('parcel-intelligence.js');
+const listingMonitorSource=read('listing-monitor.js');
 const zillowMapperSource=read('zillow-mapper.js');
 const stabilizationSource=read('stabilization.js');
 const saveReliabilitySource=read('save-reliability.js');
@@ -44,12 +48,13 @@ vm.runInContext(intelligenceSource,intelligenceContext);
 vm.runInContext(propertyWorkflowSource,intelligenceContext);
 add('Canonical Property workflow and Second Home Flexibility',intelligenceContext.window.OTPropertyWorkflow.runRegressionChecks());
 vm.runInContext(zillowFactsSource,intelligenceContext);
+vm.runInContext(propertyResearchSource,intelligenceContext);
 vm.runInContext(smartImportSource,intelligenceContext);
 add('Smart Import 3.0 pure workflow',intelligenceContext.window.OTSmartImportCore.runRegressionChecks());
 const smartAfterSave=smartImportSource.slice(smartImportSource.indexOf('async function afterPropertySaved'),smartImportSource.indexOf('async function refreshPropertyData')),smartRefresh=smartImportSource.slice(smartImportSource.indexOf('async function refreshPropertyData'),smartImportSource.indexOf('function optionHtml')),profileSave=app.slice(app.indexOf('function savePropertyScorecardV3'),app.indexOf('savePropertyScorecard=savePropertyScorecardV3;')),profileDraft=app.slice(app.indexOf('function propertyProfileDraft'),app.indexOf('function intelligenceRecordWithProfile'));
 const smartIntegrationChecks={
   modulesLoadInCanonicalOrder:html.indexOf('intelligence.js')<html.indexOf('property-workflow.js')&&html.indexOf('property-workflow.js')<html.indexOf('zillow-facts.js')&&html.indexOf('stabilization.js')<html.indexOf('smart-import.js'),
-  oneVisibleCreationOperation:['Address or Zillow URL','Zillow Facts & Features','Create Property','Cancel'].every(label=>smartImportSource.includes(label)),
+  oneVisibleCreationOperation:['Address or Zillow URL','Listing Text','Create Property','Cancel'].every(label=>smartImportSource.includes(label)),
   legacyImportControlsRemovedFromCreation:!['Import Zillow facts','Review and save','Run narrowed Property Research after save','Calculate unlocked routes after save'].some(label=>smartImportSource.includes(label)),
   compactProgressStages:['Creating property','Importing facts','Researching property','Calculating routes','Updating evaluation','Saving'].every(label=>smartImportSource.includes(label)),
   addressAndZillowUseCanonicalParser:smartImportSource.includes('OTListingInputParser?.(raw)')&&smartImportSource.includes('parsed.url')&&smartImportSource.includes('parsed.zillowId'),
@@ -65,9 +70,9 @@ const smartIntegrationChecks={
   profileFailureKeepsEditorOpen:profileSave.indexOf('if(!saved)')<profileSave.indexOf('closePropertyScorecard()')&&profileSave.includes('entries remain here'),
   profileScoreFailureHasNoFalseSuccess:profileSave.indexOf('if(!scored)')<profileSave.indexOf('closePropertyScorecard()'),
   routesCorrectedInsideProfile:smartImportSource.includes('data-profile-route')&&smartImportSource.includes('data-profile-route-unlock')&&stabilizationSource.includes('window.OTRouteEditor='),
-  advancedToolsAreConsolidated:['Run Property Research','Reprocess Zillow Facts','Refresh routes','Advanced diagnostics'].every(label=>stabilizationSource.includes(label)),
+  advancedToolsAreConsolidated:['Run Property Research','Reprocess Listing Text','Refresh routes','Advanced diagnostics'].every(label=>stabilizationSource.includes(label)),
   compareHasNoInjectedExtraFacts:!smartImportSource.includes('data-compare-flexibility'),
-  newModulesHaveNoStartupStorageWrites:![propertyWorkflowSource,smartImportSource].some(source=>/localStorage\s*\.\s*(?:setItem|removeItem|clear)/.test(source))
+  newModulesHaveNoStartupStorageWrites:![propertyWorkflowSource,smartImportSource,listingInputSource,parcelIntelligenceSource,listingMonitorSource,propertyResearchSource].some(source=>/localStorage\s*\.\s*(?:setItem|removeItem|clear)/.test(source))
 };
 add('V4.4 unified creation and Profile wiring',{passed:Object.values(smartIntegrationChecks).every(Boolean),checks:smartIntegrationChecks});
 add('Property Intelligence scorecard, filters, and dashboard',intelligenceContext.window.OTPropertyIntelligenceRegressionChecks.run());
@@ -75,13 +80,16 @@ add('Central source precedence',intelligenceContext.window.OTSourcePrecedence.ru
 add('TYS route and Location policy',intelligenceContext.window.OTRoutePolicy.runRegressionChecks());
 const intelligenceApi=intelligenceContext.window.OTIntelligence;
 const zillowContext={window:{},structuredClone};zillowContext.window.window=zillowContext.window;vm.createContext(zillowContext);vm.runInContext(sourcePrecedenceSource,zillowContext);vm.runInContext(zillowFactsSource,zillowContext);vm.runInContext(zillowMapperSource,zillowContext);const zillowResult=zillowContext.window.OTZillowFacts.runRegressionChecks();delete zillowResult.checks.idempotent;zillowResult.checks.reprocessingHasNoDuplicateFields=new Set(zillowResult.parsed).size===zillowResult.parsed.length;zillowResult.checks.reprocessingHasNoDuplicateReviews=new Set(zillowResult.reviewItems.map(item=>item.code)).size===zillowResult.reviewItems.length;zillowResult.passed=Object.values(zillowResult.checks).every(Boolean);add('Zillow Facts end-to-end mapping',zillowResult);
+const listingInputContext={window:{},URL};listingInputContext.window.window=listingInputContext.window;vm.createContext(listingInputContext);vm.runInContext(listingInputSource,listingInputContext);add('Canonical listing input',listingInputContext.window.OTListingInput.runRegressionChecks());
+const parcelContext={window:{},structuredClone,URL,URLSearchParams,Date,Number,JSON};parcelContext.window.window=parcelContext.window;vm.createContext(parcelContext);vm.runInContext(parcelIntelligenceSource,parcelContext);add('Official parcel intelligence',parcelContext.window.OTParcelIntelligence.runRegressionChecks(JSON.parse(read('scripts/fixtures/happy-hollow-parcel.json'))));
+const researchContext={window:{},structuredClone,Date,encodeURIComponent,URL};researchContext.window.window=researchContext.window;vm.createContext(researchContext);vm.runInContext(sourcePrecedenceSource,researchContext);vm.runInContext(propertyResearchSource,researchContext);vm.runInContext(listingMonitorSource,researchContext);add('Permitted public property research',researchContext.window.OTPropertyResearch.runRegressionChecks(read('scripts/fixtures/happy-hollow-research.rss')));add('Meaningful listing monitoring',researchContext.window.OTListingMonitor.runRegressionChecks());
 const stabilizationContext={window:{addEventListener:()=>{}},document:makeDocument(),MutationObserver:function(){this.observe=()=>{}},Number,Object,Array,JSON,Date,encodeURIComponent,setTimeout:()=>0,fetch:async()=>{throw new Error('Offline fixture environment')}};stabilizationContext.window.window=stabilizationContext.window;vm.createContext(stabilizationContext);vm.runInContext(sourcePrecedenceSource,stabilizationContext);vm.runInContext(routePolicySource,stabilizationContext);vm.runInContext(stabilizationSource,stabilizationContext);add('Stabilized property-specific routes',stabilizationContext.window.OTStabilization.runRegressionChecks());
 const compactUiChecks={
   mapLayersStartCollapsed:/id="layersPanel"[^>]*hidden/.test(html),
   mapLayerSelectionPersists:app.includes('persistMapLayerState')&&app.includes('applyMapLayerState'),
   mapLayersEscapeCloses:app.includes("event.key==='Escape'")&&app.includes('setLayersPanel(false)'),
   primaryDossierActions:stabilizationSource.includes("editProfile.textContent='Edit Profile'")&&stabilizationSource.includes("refresh.textContent='Refresh Property Data'")&&stabilizationSource.includes("more.className='dossier-more'"),
-  secondaryActionsInMore:['Reprocess Zillow Facts','Adjust property location','Run Property Research','Refresh routes','View County Parcel Map','Open listing','Site Planning','Delete property'].every(label=>stabilizationSource.includes(label)),
+  secondaryActionsInMore:['Reprocess Listing Text','Adjust property location','Run Property Research','Refresh routes','View County Parcel Map','Open listing','Site Planning','Delete property'].every(label=>stabilizationSource.includes(label)),
   oldEditAllRemoved:!stabilizationSource.includes("editAll.textContent='Edit all details'"),
   routeDiagnosticsHiddenByDefault:!stabilizationSource.slice(stabilizationSource.indexOf('function routeRows'),stabilizationSource.indexOf('function importedFacts')).includes('checkedAt')&&!stabilizationSource.slice(stabilizationSource.indexOf('function routeRows'),stabilizationSource.indexOf('function importedFacts')).includes('Source:'),
   mileagePrecisionCentral:routePolicySource.includes('function formatMiles'),
@@ -96,7 +104,7 @@ const compactUiChecks={
   profileSaveButtonResets:app.includes("saveButton.textContent='Save Profile'"),
   legacyDossierFactsHidden:stabilizationSource.includes("querySelectorAll('.kpis,.dossier-summary-strip")&&stabilizationSource.includes("classList.add('dossier-legacy-hidden')")&&read('styles.css').includes('.dossier-legacy-hidden{display:none!important}'),
   desktopCompareIsolatesOtherPanels:app.includes("classList.remove('desktop-open')")&&app.includes("classList.remove('active');closeDrawer();closePropertyScorecard();renderCompare()"),
-  versionInformationCurrent:app.includes('Operation Turtle 4.4.0')&&app.includes('feature/v4.4-ux-simplification-automation')
+  versionInformationCurrent:app.includes('Operation Turtle 4.4.1 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability')
 };
 add('V4.4 simplified interface wiring',{passed:Object.values(compactUiChecks).every(Boolean),checks:compactUiChecks});const routeApi=intelligenceContext.window.OTRoutePolicy;
 const routeFixtureCandidates=[
