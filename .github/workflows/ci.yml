@@ -24,4 +24,6 @@ jobs:
         run: |
           find . -name '*.js' -not -path './.git/*' -not -path './.tools/*' -print0 | xargs -0 -n1 node --check
       - name: Run fixture regression suite
-        run: node scripts/verify-baseline.js
+        run: |
+          node scripts/verify-baseline.js
+          node scripts/verify-parcel-coverage.js

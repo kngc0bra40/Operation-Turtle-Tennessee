@@ -101,6 +101,8 @@ function parcelCertainty(record={}){
  if(state==='user-corrected'&&hasGeometry)return {id:'user-adjusted-parcel',stateId:state,label:'User-corrected parcel',terrainEligible:true};
  if(state==='verified-gis-parcel'&&hasGeometry)return {id:'verified-parcel-polygon',stateId:state,label:'Verified GIS parcel',terrainEligible:true};
  if(state==='parcel-match')return {id:'parcel-matched',stateId:state,label:'Parcel match',terrainEligible:false};
+ if(state==='parcel-review-required')return {id:'parcel-review-required',stateId:state,label:'Parcel review required',terrainEligible:false};
+ if(state==='no-parcel-match')return {id:'no-parcel-match',stateId:state,label:'No parcel match',terrainEligible:false};
  if(state==='approximate-parcel')return {id:'approximate-parcel',stateId:state,label:'Approximate parcel',terrainEligible:false};
  if(hasGeometry&&precedence?.normalizeSource?.(geometrySource)==='user-confirmed')return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};
  if(Array.isArray(record.boundary)&&record.boundary.length>=3)return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};

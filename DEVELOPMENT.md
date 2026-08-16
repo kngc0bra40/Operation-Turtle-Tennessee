@@ -21,6 +21,7 @@ Before merging, run JavaScript syntax checks and:
 
 ```powershell
 node scripts/verify-baseline.js
+node scripts/verify-parcel-coverage.js
 ```
 
 The runner uses fixtures only. It covers preservation, import/location, scoring, planning, elevation, cleanup, duplicate HTML IDs, and storage-recovery behavior without reading or changing active browser storage.

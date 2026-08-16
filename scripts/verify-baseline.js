@@ -104,7 +104,9 @@ const compactUiChecks={
   profileSaveButtonResets:app.includes("saveButton.textContent='Save Profile'"),
   legacyDossierFactsHidden:stabilizationSource.includes("querySelectorAll('.kpis,.dossier-summary-strip")&&stabilizationSource.includes("classList.add('dossier-legacy-hidden')")&&read('styles.css').includes('.dossier-legacy-hidden{display:none!important}'),
   desktopCompareIsolatesOtherPanels:app.includes("classList.remove('desktop-open')")&&app.includes("classList.remove('active');closeDrawer();closePropertyScorecard();renderCompare()"),
-  versionInformationCurrent:app.includes('Operation Turtle 4.4.1 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability')
+  versionInformationCurrent:app.includes('Operation Turtle 4.4.2 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability'),
+  parcelDiagnosticsAvailable:stabilizationSource.includes('data-parcel-diagnostics')&&stabilizationSource.includes('Parcel lookup diagnostics'),
+  parcelSourceStatusReflectsConnection:app.includes('function refreshParcelSourceStatus')&&app.includes("connected${provider?")
 };
 add('V4.4 simplified interface wiring',{passed:Object.values(compactUiChecks).every(Boolean),checks:compactUiChecks});const routeApi=intelligenceContext.window.OTRoutePolicy;
 const routeFixtureCandidates=[

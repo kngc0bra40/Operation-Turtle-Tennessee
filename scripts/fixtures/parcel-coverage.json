@@ -1,0 +1,44 @@
+{
+  "records": [
+    {
+      "county": "Anderson",
+      "address": "419 Duncan Ln, Andersonville, TN",
+      "lat": 36.2738714,
+      "lng": -84.0248381,
+      "acres": 1.19293654,
+      "properties": {"ADDRESS": "DUNCAN LN 419", "PARCELID": "001003 00100", "CALC_ACRE": 1.19293654, "OWNER": "FIXTURE OWNER"}
+    },
+    {
+      "county": "Blount",
+      "address": "4348 Near Shore Dr, Maryville, TN",
+      "lat": 35.8748518,
+      "lng": -84.0189546,
+      "acres": 3.0325805,
+      "properties": {"ADDRESS": "NEAR SHORE DR 4348", "PARCELID": "005001M A 03100", "CAMACALCAC": 3.0325805, "OWNER": "FIXTURE OWNER"}
+    },
+    {
+      "county": "Loudon",
+      "address": "1550 Jones Rd, Loudon, TN",
+      "lat": 35.8885981,
+      "lng": -84.3284223,
+      "acres": 4.2932744,
+      "properties": {"Assessment_Data_53_ADDRESS": "JONES RD 1550", "Assessment_Data_53_PARCELID": "053002 00400", "Parcels_CALC_ACRE": 4.2932744, "Assessment_Data_53_OWNER": "FIXTURE OWNER"}
+    },
+    {
+      "county": "Monroe",
+      "address": "464 Allen Rd, Tellico Plains, TN",
+      "lat": 35.6633035,
+      "lng": -84.4507447,
+      "acres": 0.97947801,
+      "properties": {"Assessment_Data_62_ADDRESS": "ALLEN RD 464", "Assessment_Data_62_PARCELID": "062002 00701", "Parcels_CALC_ACRE": 0.97947801, "Assessment_Data_62_OWNER": "FIXTURE OWNER"}
+    },
+    {
+      "county": "McMinn",
+      "address": "102 County Road 291, Athens, TN",
+      "lat": 35.6425901,
+      "lng": -84.5864969,
+      "acres": 1.7325685,
+      "properties": {"Assessment_Data_54_ADDRESS": "CO RD 291-102", "Assessment_Data_54_PARCELID": "054001 01001", "Parcels_CALC_ACRE": 1.7325685, "Assessment_Data_54_OWNER": "FIXTURE OWNER"}
+    }
+  ]
+}
