@@ -26,6 +26,8 @@ const listingMonitorSource=read('listing-monitor.js');
 const zillowMapperSource=read('zillow-mapper.js');
 const stabilizationSource=read('stabilization.js');
 const saveReliabilitySource=read('save-reliability.js');
+const parcelWorkflowSource=read('parcel-workflow.js');
+const overlayManagerSource=read('overlay-manager.js');
 const html=read('index.html');
 const results=[];
 const add=(name,result)=>{const passed=Boolean(result?.passed);results.push({name,passed,count:Object.keys(result?.checks||{}).length,checks:result?.checks||{}});if(!passed)process.exitCode=1;};
@@ -70,9 +72,9 @@ const smartIntegrationChecks={
   profileFailureKeepsEditorOpen:profileSave.indexOf('if(!saved)')<profileSave.indexOf('closePropertyScorecard()')&&profileSave.includes('entries remain here'),
   profileScoreFailureHasNoFalseSuccess:profileSave.indexOf('if(!scored)')<profileSave.indexOf('closePropertyScorecard()'),
   routesCorrectedInsideProfile:smartImportSource.includes('data-profile-route')&&smartImportSource.includes('data-profile-route-unlock')&&stabilizationSource.includes('window.OTRouteEditor='),
-  advancedToolsAreConsolidated:['Run Property Research','Reprocess Listing Text','Refresh routes','Advanced diagnostics'].every(label=>stabilizationSource.includes(label)),
+  advancedToolsAreConsolidated:['Run Property Research','Reprocess Listing Text','Refresh routes','Advanced details'].every(label=>stabilizationSource.includes(label)),
   compareHasNoInjectedExtraFacts:!smartImportSource.includes('data-compare-flexibility'),
-  newModulesHaveNoStartupStorageWrites:![propertyWorkflowSource,smartImportSource,listingInputSource,parcelIntelligenceSource,listingMonitorSource,propertyResearchSource].some(source=>/localStorage\s*\.\s*(?:setItem|removeItem|clear)/.test(source))
+  newModulesHaveNoStartupStorageWrites:![propertyWorkflowSource,smartImportSource,listingInputSource,parcelIntelligenceSource,listingMonitorSource,propertyResearchSource,parcelWorkflowSource,overlayManagerSource].some(source=>/localStorage\s*\.\s*(?:setItem|removeItem|clear)/.test(source))
 };
 add('V4.4 unified creation and Profile wiring',{passed:Object.values(smartIntegrationChecks).every(Boolean),checks:smartIntegrationChecks});
 add('Property Intelligence scorecard, filters, and dashboard',intelligenceContext.window.OTPropertyIntelligenceRegressionChecks.run());
@@ -89,7 +91,7 @@ const compactUiChecks={
   mapLayerSelectionPersists:app.includes('persistMapLayerState')&&app.includes('applyMapLayerState'),
   mapLayersEscapeCloses:app.includes("event.key==='Escape'")&&app.includes('setLayersPanel(false)'),
   primaryDossierActions:stabilizationSource.includes("editProfile.textContent='Edit Profile'")&&stabilizationSource.includes("refresh.textContent='Refresh Property Data'")&&stabilizationSource.includes("more.className='dossier-more'"),
-  secondaryActionsInMore:['Reprocess Listing Text','Adjust property location','Run Property Research','Refresh routes','View County Parcel Map','Open listing','Site Planning','Delete property'].every(label=>stabilizationSource.includes(label)),
+  secondaryActionsInMore:['Reprocess Listing Text','Adjust property location','Run Property Research','Refresh routes','View County Parcel Map','Open listing','Fix Parcel','Site Planning','Delete property'].every(label=>stabilizationSource.includes(label)),
   oldEditAllRemoved:!stabilizationSource.includes("editAll.textContent='Edit all details'"),
   routeDiagnosticsHiddenByDefault:!stabilizationSource.slice(stabilizationSource.indexOf('function routeRows'),stabilizationSource.indexOf('function importedFacts')).includes('checkedAt')&&!stabilizationSource.slice(stabilizationSource.indexOf('function routeRows'),stabilizationSource.indexOf('function importedFacts')).includes('Source:'),
   mileagePrecisionCentral:routePolicySource.includes('function formatMiles'),
@@ -103,8 +105,8 @@ const compactUiChecks={
   dossierReviewRenderedByDefault:app.includes('appendPropertyIntelligence(id);appendPropertyDataReview(id)'),
   profileSaveButtonResets:app.includes("saveButton.textContent='Save Profile'"),
   legacyDossierFactsHidden:stabilizationSource.includes("querySelectorAll('.kpis,.dossier-summary-strip")&&stabilizationSource.includes("classList.add('dossier-legacy-hidden')")&&read('styles.css').includes('.dossier-legacy-hidden{display:none!important}'),
-  desktopCompareIsolatesOtherPanels:app.includes("classList.remove('desktop-open')")&&app.includes("classList.remove('active');closeDrawer();closePropertyScorecard();renderCompare()"),
-  versionInformationCurrent:app.includes('Operation Turtle 4.4.2 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability'),
+  desktopCompareIsolatesOtherPanels:app.includes("OTOverlayManager?.prepare?.('compare')")&&overlayManagerSource.includes("minimize('dossier')")&&overlayManagerSource.includes('closeAdd()'),
+  versionInformationCurrent:app.includes('Operation Turtle 5.0 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability'),
   parcelDiagnosticsAvailable:stabilizationSource.includes('data-parcel-diagnostics')&&stabilizationSource.includes('Parcel lookup diagnostics'),
   parcelSourceStatusReflectsConnection:app.includes('function refreshParcelSourceStatus')&&app.includes("connected${provider?")
 };

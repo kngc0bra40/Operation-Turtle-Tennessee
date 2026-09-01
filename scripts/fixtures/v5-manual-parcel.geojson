@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "PARCELID": "V5-MANUAL-001",
+        "source": "Operation Turtle fixture"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-84.3371, 35.2983],
+            [-84.3329, 35.2983],
+            [-84.3329, 35.3017],
+            [-84.3371, 35.3017],
+            [-84.3371, 35.2983]
+          ]
+        ]
+      }
+    }
+  ]
+}
