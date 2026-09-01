@@ -39,17 +39,20 @@
     <div id="layersPanel" class="map-flyout layers-panel" hidden>
       <strong>Base map</strong>
       <label for="baseLayerStreet"><input id="baseLayerStreet" type="radio" name="baseLayer" value="street" checked> Street map</label>
-      <label for="baseLayerSatellite"><input id="baseLayerSatellite" type="radio" name="baseLayer" value="satellite"> Satellite aerial</label>
-      <label for="baseLayerHybrid"><input id="baseLayerHybrid" type="radio" name="baseLayer" value="hybrid"> Satellite + labels</label>
+      <label for="baseLayerTnAerial"><input id="baseLayerTnAerial" type="radio" name="baseLayer" value="tnAerial"> Tennessee latest aerial</label>
+      <label for="baseLayerSatellite"><input id="baseLayerSatellite" type="radio" name="baseLayer" value="satellite"> Esri satellite aerial</label>
+      <label for="baseLayerHybrid"><input id="baseLayerHybrid" type="radio" name="baseLayer" value="hybrid"> Esri satellite + labels</label>
       <label for="baseLayerTopo"><input id="baseLayerTopo" type="radio" name="baseLayer" value="topo"> Topographic</label>
       <strong>Overlays</strong>
       <label><input id="layerProperties" type="checkbox" checked> Properties</label>
       <label><input id="layerScoutPins" type="checkbox" checked> Scout pins</label>
       <label><input id="layerSearchResults" type="checkbox" checked> Search results</label>
       <label><input id="layerParcelBoundaries" type="checkbox" checked> Saved parcel geometry / outlines</label>
+      <label><input id="layerCandidateZones" type="checkbox" checked> Candidate build / caution zones</label>
       <label><input id="layerHillshade" type="checkbox"> Terrain hillshade</label>
       <label><input id="layerContours" type="checkbox"> USGS contour lines</label>
       <button id="clearSearchPinsBtn" class="secondary outline" type="button">Clear search results</button>
+      <div id="imageryMetadata" class="imagery-metadata">Aerial imagery year appears when a Tennessee property is opened.</div>
     </div>
     <div class="map-status"><span id="pinCount">3 pins</span><button onclick="fitProperties()">Show all</button></div>
   </section>
@@ -134,6 +137,8 @@
     <div id="parcelFixStatus" class="parcel-fix-status" role="status" aria-live="polite"><b>Parcel boundary needed</b><span>Operation Turtle will try the available public source first.</span></div>
     <section class="parcel-fix-options" aria-label="Parcel recovery choices">
       <button id="parcelRetryBtn" type="button"><b>Automatically Try Again</b><span>Retry available government parcel maps.</span></button>
+      <div class="parcel-id-lookup"><label for="parcelIdInput"><b>Enter Parcel ID</b><span>Paste the complete ID from an assessor record. Spaces, dashes, and decimal points are accepted and preserved.</span></label><div><input id="parcelIdInput" autocomplete="off" placeholder="Example: 078-123-010.00"><button id="parcelIdFindBtn" class="secondary" type="button">Find Parcel</button></div></div>
+      <button id="openTnPropertyViewerBtn" type="button"><b>Open Tennessee Property Viewer ↗</b><span>Find the parcel visually, then copy its Parcel ID or use a screenshot for tracing.</span></button>
       <button id="parcelSelectMapBtn" type="button"><b>Select Parcel on Map</b><span>Choose one or more visible candidates.</span></button>
       <label class="parcel-file-choice"><b>Upload Parcel File or Map</b><span>GeoJSON, KML, KMZ, zipped Shapefile, GPX, PDF, or image.</span><input id="parcelFixFileInput" type="file" accept=".geojson,.json,.kml,.kmz,.zip,.gpx,.pdf,.png,.jpg,.jpeg,.webp,application/geo+json,application/json,application/vnd.google-earth.kml+xml,application/pdf,image/png,image/jpeg,image/webp" hidden></label>
       <button id="parcelDrawBtn" type="button"><b>Draw / Edit Boundary</b><span>Click parcel corners and adjust individual points.</span></button>
@@ -188,10 +193,11 @@
 <script src="integrity.js" defer></script>
 <script src="planning.js?v=4.4.2" defer></script>
 <script src="elevation.js?v=4.4.2" defer></script>
+<script src="land-assessment.js?v=5.0.1" defer></script>
 <script src="p0-regression-checks.js" defer></script>
 <script src="recovery.js?v=5.0.0.2" defer></script>
 <script src="stabilization.js?v=5.0.0.1" defer></script>
 <script src="smart-import.js?v=4.4.2" defer></script>
-<script src="parcel-workflow.js?v=5.0.0.1" defer></script>
+<script src="parcel-workflow.js?v=5.0.1" defer></script>
 </body>
 </html>
