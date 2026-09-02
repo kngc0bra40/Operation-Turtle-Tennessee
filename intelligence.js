@@ -47,9 +47,14 @@
     residenceCondition:['unknown','livable','minor-work','major-rehabilitation','unknown-condition'],
     electric:['unknown','verified','recorded','available','none'],
     waterSource:['unknown','verified-well','public-water','verified-other','recorded','available','none'],
+    well:['unknown','verified','recorded','available','none'],
+    spring:['unknown','verified','recorded','seasonal','none'],
     septicOrSewer:['unknown','verified','recorded','available','none'],
+    sewer:['unknown','verified','recorded','available','none'],
     internet:['unknown','verified','recorded','available','none'],
     driveway:['unknown','year-round','verified','recorded','limited','none'],
+    roadAccess:['unknown','year-round','verified','recorded','limited','none'],
+    utilityAvailability:['unknown','onsite','partial-onsite','roadside','none'],
     outbuildings:['unknown','garage','barn','workshop','multiple','none'],
     additionalBuildSite:['unknown','identified','likely','none-identified','not-viable'],
     additionalBuildSiteConfidence:['unknown','high','medium','low','not-viable'],
@@ -152,9 +157,11 @@
     if(/existing|onsite|installed|functioning|verified|year.round/.test(legacy))return 'recorded';
     if(/available|roadside/.test(legacy))return 'available';
     if(/none|not available/.test(legacy))return 'none';
+    const status=residenceStatus(record,profile);
+    if(key!=='internet'&&status==='livable')return 'inferred-present';
     return 'unknown';
   }
-  function serviceContribution(state){return state==='verified'?1:state==='recorded'?.7:state==='available'?.25:state==='none'?-.25:0;}
+  function serviceContribution(state){return state==='verified'?1:state==='recorded'?.7:state==='inferred-present'?.45:state==='available'?.25:state==='none'?-.25:0;}
   function residenceStatus(record={},profile=profileFor(record)){
     if(profile.residenceStatus!=='unknown')return profile.residenceStatus;
     const type=String(record.propertyType||'').toLowerCase(),structure=existingStructureRecorded(record);
@@ -261,8 +268,9 @@
     const type=String(record.propertyType||'').toLowerCase(),hasHome=Boolean(Number(record.beds)||Number(record.sqft)||profile.existingResidencePresent===true);
     if(/raw|vacant|land/.test(type)&&hasHome)add('type-conflict','Property type says vacant/raw land, but home facts are present.','Home readiness and infrastructure scoring may be inconsistent.','Existing Home & Infrastructure','property','propertyType',{type,hasHome,beds:record.beds,sqft:record.sqft,source:record.fieldSources?.propertyType});
     if(/home|livable|residence|cabin/.test(type)&&profile.existingResidencePresent===null)add('home-unclear','A home-type property has no confirmed residence status.','Immediate livability should not be assumed.','Existing Home & Infrastructure','scorecard','existingResidencePresent',{type,present:profile.existingResidencePresent,source:record.fieldSources?.existingResidencePresent});
-    const utilities=['electric','waterSource','septicOrSewer','driveway','internet'];
-    if(utilities.some(key=>profile[key]==='unknown')&&(/home|improved|structure/.test(type)||hasHome))add('utilities-unclear','Core utility status is incomplete.','Electric, water, septic, driveway, and internet affect readiness and development risk.','Existing Home & Infrastructure','scorecard','utilities',Object.fromEntries(utilities.map(key=>[key,profile[key]])));
+    const services=existingHomeFacts(record,profile).services,coreUtilities=['electric','water','septic','driveway'];
+    if(coreUtilities.some(key=>services[key]==='unknown')&&(/home|improved|structure/.test(type)||hasHome))add('utilities-unclear','Core existing-residence utility status is incomplete.','Electric, water, wastewater, and physical access affect present readiness. A livable-home inference is used only when no explicit absence is recorded.','Existing Home & Infrastructure','scorecard','utilities',Object.fromEntries(coreUtilities.map(key=>[key,services[key]])));
+    if(hasHome&&services.internet==='unknown')add('internet-unclear','Internet availability is not confirmed.','A livable residence does not prove broadband service.','Existing Home & Infrastructure','scorecard','internet',{internet:profile.internet});
     if(profile.additionalBuildSite==='unknown'&&profile.secondHomeFlexibility==='unknown')add('second-site-unknown','Additional-home feasibility is not recorded.','A second-home path is central to the Turtle Score.','Second-Home Build Potential','scorecard','additionalBuildSite',{site:profile.additionalBuildSite,flexibility:profile.secondHomeFlexibility,source:record.fieldSources?.['propertyIntelligence.propertyProfile.secondHomeFlexibility']||record.fieldSources?.secondHomeFlexibility});
     const waterText=String(record.waterFeature||'').toLowerCase();
     if((/creek|stream|pond|spring|river|water/.test(waterText)||/creek|stream|pond|spring|river/.test(String(record.notes||'')))&&profile.waterFeatureReliability==='unknown')add('water-unverified','A water feature is mentioned but reliability is not verified.','Water adds recreation value while reliability and flood exposure affect risk.','Recreation & Water Features','scorecard','waterFeatureReliability',{waterText,reliability:profile.waterFeatureReliability});
@@ -300,6 +308,7 @@
       score+=(!home.present&&state==='none')?0:serviceContribution(state);
       if(state==='verified'){facts++;reasons.push(`${serviceLabels[key]} is verified.`);}
       else if(state==='recorded'){facts++;reasons.push(`${serviceLabels[key]} is recorded but still needs verification.`);}
+      else if(state==='inferred-present'){facts++;reasons.push(key==='water'?'A potable water source is inferred for the livable residence; type is unknown.':key==='septic'?'Wastewater service is inferred for the livable residence; septic or sewer type is unknown.':`${serviceLabels[key]} is inferred present for the livable residence.`);warnings.push(`${serviceLabels[key]} is inferred from confirmed livability, not independently verified.`);}
       else if(state==='available')warnings.push(`${serviceLabels[key]} is available, not confirmed installed.`);
       else if(state==='none'){facts++;reasons.push(`${serviceLabels[key]} is confirmed absent.`);}
     });
@@ -380,7 +389,8 @@
     const positives=['privacy','secluded','rural','wood','timber','tree cover','mountain view','view'];
     const negatives=['neighbor','nearby homes','road noise','traffic','visible from road'];
     if(includesAny(text,positives)){score+=.9;facts++;reasons.push('Saved observations describe privacy, cover, rural setting, or views.');}
-    if(land.nationalParkAdjacency==='yes'){score+=.55;facts++;reasons.push('Corroborated National Park adjacency supports privacy and setting value.');}
+    const publicAdjacency=record.landAssessment?.publicLandAdjacency||record.publicLandAdjacency;
+    if(land.nationalParkAdjacency==='yes'||publicAdjacency?.adjacent){score+=.55;facts++;reasons.push(publicAdjacency?.adjacent?`Mapped direct adjacency to ${publicAdjacency.name||'public land'} supports privacy and setting value.`:'Corroborated National Park adjacency supports privacy and setting value.');}
     if(includesAny(text,negatives)){score-=1;facts++;warnings.push('Saved observations identify a neighbor, visibility, or road-noise concern.');}
     if(acres>=30)reasons.push('Acreage supports separation between uses.');
     if(profile.woodedOpenMix==='unknown')warnings.push('Wooded/open balance and usable areas need field verification.');
@@ -397,7 +407,8 @@
     if(land.recreationalUse==='yes'||record.priorUse?.type==='recreational'){score=(score??5)+.55;facts++;reasons.push('Prior recreational land use is corroborated.');}
     if(land.sxsSuitability==='confirmed'){score=(score??5)+.35;facts++;reasons.push('SxS suitability is separately recorded as confirmed.');}
     else if(land.establishedTrails==='yes')warnings.push('Established trails do not establish SxS width, grade, or access suitability.');
-    if(land.nationalParkAdjacency==='yes'){score=(score??5)+.35;facts++;reasons.push('National Park adjacency adds recreation-setting value.');}
+    const publicAdjacency=record.landAssessment?.publicLandAdjacency||record.publicLandAdjacency;
+    if(land.nationalParkAdjacency==='yes'||publicAdjacency?.adjacent){score=(score??5)+.35;facts++;reasons.push(publicAdjacency?.adjacent?`Direct mapped adjacency to ${publicAdjacency.name||'public land'} adds recreation-setting value.`:'National Park adjacency adds recreation-setting value.');}
     const water=profile.waterFeatureType!=='unknown'?profile.waterFeatureType:String(record.waterFeature||'').toLowerCase();
     if(['creek','spring','pond','river','multiple'].includes(water)){score=(score??5)+(water==='multiple'?1.9:1.3);facts++;reasons.push(water==='multiple'?'Multiple water features are recorded.':`${water[0].toUpperCase()+water.slice(1)} is recorded.`);}
     else if(water==='seasonal-drainage'||water==='seasonal'){score=(score??5)+.35;facts++;warnings.push('A seasonal drainage feature is recorded; reliability is limited.');}

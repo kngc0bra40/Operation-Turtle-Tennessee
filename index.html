@@ -10,7 +10,7 @@
 <title>Operation Turtle 5.0 Preview</title>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=5.0.0.1">
+<link rel="stylesheet" href="styles.css?v=5.0.2">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-512.png">
 </head>
@@ -35,6 +35,12 @@
       <button id="newScoutPinBtn" class="map-tool-btn" type="button">＋ Pin</button>
       <button id="layersBtn" class="map-tool-btn" type="button" aria-controls="layersPanel" aria-expanded="false" title="Show or hide map layers">Layers</button>
     </div>
+    <div id="propertyMapToolbar" class="property-map-toolbar" hidden aria-label="Property map workspace">
+      <button id="propertyMapParcelBtn" type="button">Parcel</button>
+      <button id="propertyMapAssessmentBtn" type="button">Land Assessment</button>
+      <button id="propertyMapPlanningBtn" type="button">Site Planning</button>
+      <button id="propertyMapRestoreBtn" type="button">Restore panels</button>
+    </div>
     <div id="mapSearchPanel" class="map-flyout search-results-panel" hidden></div>
     <div id="layersPanel" class="map-flyout layers-panel" hidden>
       <strong>Base map</strong>
@@ -43,14 +49,22 @@
       <label for="baseLayerSatellite"><input id="baseLayerSatellite" type="radio" name="baseLayer" value="satellite"> Esri satellite aerial</label>
       <label for="baseLayerHybrid"><input id="baseLayerHybrid" type="radio" name="baseLayer" value="hybrid"> Esri satellite + labels</label>
       <label for="baseLayerTopo"><input id="baseLayerTopo" type="radio" name="baseLayer" value="topo"> Topographic</label>
-      <strong>Overlays</strong>
+      <strong>Property</strong>
       <label><input id="layerProperties" type="checkbox" checked> Properties</label>
       <label><input id="layerScoutPins" type="checkbox" checked> Scout pins</label>
       <label><input id="layerSearchResults" type="checkbox" checked> Search results</label>
       <label><input id="layerParcelBoundaries" type="checkbox" checked> Saved parcel geometry / outlines</label>
       <label><input id="layerCandidateZones" type="checkbox" checked> Candidate build / caution zones</label>
+      <label><input id="layerWaterDrainage" type="checkbox" checked> Water / drainage constraints</label>
       <label><input id="layerHillshade" type="checkbox"> Terrain hillshade</label>
       <label><input id="layerContours" type="checkbox"> USGS contour lines</label>
+      <strong>Recreation &amp; Public Lands</strong>
+      <label><input id="layerPublicFederal" type="checkbox"> National / public lands</label>
+      <label><input id="layerPublicState" type="checkbox"> State parks / forests / WMAs</label>
+      <label><input id="layerAtvSxs" type="checkbox"> ATV &amp; SxS destinations</label>
+      <label><input id="layerRecreationLakes" type="checkbox"> Lakes / water recreation</label>
+      <label><input id="layerOutdoorPois" type="checkbox"> Outdoor destinations</label>
+      <div id="recreationLayerStatus" class="imagery-metadata" role="status">Optional layers load only when selected.</div>
       <button id="clearSearchPinsBtn" class="secondary outline" type="button">Clear search results</button>
       <div id="imageryMetadata" class="imagery-metadata">Aerial imagery year appears when a Tennessee property is opened.</div>
     </div>
@@ -122,7 +136,7 @@
   <div class="site-planning-body">
     <div id="sitePlanningStatus" class="terrain-readout">Choose a drawing tool, then use the satellite map.</div><div id="sitePlanningSaveState" class="planning-save-state" data-state="saved" role="status">Saved.</div>
     <section class="planning-section"><h3>Plan concept</h3><label>Active concept<select id="planningConceptSelect"></select></label><div class="form-actions"><button id="createPlanningConceptBtn" class="secondary" type="button">Create concept</button><button id="duplicatePlanningConceptBtn" class="secondary outline" type="button">Duplicate</button><button id="renamePlanningConceptBtn" class="secondary outline" type="button">Rename</button><button id="archivePlanningConceptBtn" class="secondary danger-outline" type="button">Archive</button></div><div id="planningConceptComparison" class="small"></div></section>
-  <section class="planning-section"><h3>Map features</h3><label>Feature type<select id="planningFeatureType"><option value="driveway-entrance">Proposed driveway entrance</option><option value="driveway-route">Proposed driveway route</option><option value="build-site">Proposed build-site area</option><option value="existing-home">Existing home</option><option value="barn-shop">Barn, shop, or structure</option><option value="well">Well</option><option value="septic">Septic area</option><option value="utility-connection">Utility connection</option><option value="utility-route">Utility route</option><option value="gate">Gate</option><option value="creek">Creek or crossing</option><option value="problem-area">Problem area</option></select></label><div class="form-actions"><button id="startPlanningDrawBtn" class="secondary" type="button">Draw feature</button><button id="finishPlanningDrawBtn" class="secondary outline" type="button">Finish drawing</button><button id="editPlanningGeometryBtn" class="secondary outline" type="button">Edit geometry</button><button id="deletePlanningFeatureBtn" class="secondary danger-outline" type="button">Delete selected</button><button id="clearPlanningFeaturesBtn" class="secondary danger-outline" type="button">Clear concept</button></div><label>Selected label<input id="planningFeatureLabel" placeholder="Driveway route, homesite A, creek crossing…"></label><label>Map-object notes<textarea id="planningFeatureNotes" rows="3" placeholder="Observed conditions, assumptions, or questions…"></textarea></label><label>Related features<select id="planningRelationships" multiple size="4"></select></label><button id="savePlanningFeatureBtn" class="secondary outline" type="button">Save feature details</button><div id="planningFeatureList" class="planning-feature-list"></div></section>
+    <section class="planning-section"><h3>Map features</h3><label>Feature type<select id="planningFeatureType"><option value="driveway-entrance">Proposed driveway entrance</option><option value="driveway-route">Proposed driveway route</option><option value="build-site">Proposed build-site area</option><option value="existing-home">Existing home</option><option value="barn-shop">Barn, shop, or structure</option><option value="well">Well</option><option value="septic">Septic area</option><option value="utility-connection">Utility connection</option><option value="utility-route">Utility route</option><option value="gate">Gate</option><option value="creek">Creek or crossing</option><option value="water-exclusion">Water / pond exclusion</option><option value="road-exclusion">Road / right-of-way exclusion</option><option value="problem-area">Problem area</option></select></label><div class="form-actions"><button id="startPlanningDrawBtn" class="secondary" type="button">Draw feature</button><button id="finishPlanningDrawBtn" class="secondary outline" type="button">Finish drawing</button><button id="editPlanningGeometryBtn" class="secondary outline" type="button">Edit geometry</button><button id="deletePlanningFeatureBtn" class="secondary danger-outline" type="button">Delete selected</button><button id="clearPlanningFeaturesBtn" class="secondary danger-outline" type="button">Clear concept</button></div><label>Selected label<input id="planningFeatureLabel" placeholder="Driveway route, homesite A, creek crossing…"></label><label>Map-object notes<textarea id="planningFeatureNotes" rows="3" placeholder="Observed conditions, assumptions, or questions…"></textarea></label><label>Related features<select id="planningRelationships" multiple size="4"></select></label><button id="savePlanningFeatureBtn" class="secondary outline" type="button">Save feature details</button><div id="planningFeatureList" class="planning-feature-list"></div></section>
     <section class="planning-section"><h3>Driveway feasibility &amp; range estimate</h3><p class="small">Manual terrain remains the fallback. A measured profile is preliminary planning data, not engineering approval.</p><label>Driveway route<select id="planningDrivewayFeature"></select></label><div class="planning-grid"><label>Terrain class<select id="planningTerrainClass"><option value="flat">Flat / gentle</option><option value="rolling">Rolling</option><option value="steep">Steep</option><option value="hillside">Major hillside</option></select></label><label>Surface<select id="planningSurface"><option value="gravel">Gravel drive</option><option value="road-base">Road base only</option><option value="paved">Paved finish</option></select></label><label>Average slope %<input id="planningAverageSlope" type="number" min="0" max="60" step="1" placeholder="Manual estimate"></label><label>Maximum slope %<input id="planningMaximumSlope" type="number" min="0" max="80" step="1" placeholder="Manual estimate"></label><label>Clearing width (ft)<input id="planningClearingWidth" type="number" min="8" step="1" value="16"></label><label>Switchbacks<input id="planningSwitchbacks" type="number" min="0" step="1" value="0"></label><label>Culverts<input id="planningCulverts" type="number" min="0" step="1" value="0"></label><label>Retaining wall (ft)<input id="planningRetainingFeet" type="number" min="0" step="10" value="0"></label></div><div class="planning-checks"><label><input id="planningRockRisk" type="checkbox"> Rock excavation likely</label><label><input id="planningDrainage" type="checkbox"> Drainage ditches needed</label><label><input id="planningCreekCrossing" type="checkbox"> Creek / bridge crossing</label></div><div class="form-actions"><button id="requestElevationProfileBtn" class="secondary outline" type="button">Get elevation profile</button><button id="saveDrivewayAnalysisBtn" class="secondary" type="button">Update driveway analysis</button></div><div id="drivewayEstimateReadout" class="terrain-readout"></div><div id="drivewayElevationReadout" class="terrain-readout elevation-readout"></div><details class="manual-elevation"><summary>Manual elevation fallback</summary><p class="small">These user-estimated values remain distinct from provider-derived measurements.</p><label><input id="planningManualElevationEnabled" type="checkbox"> Use manual elevation estimate for this route</label><div class="planning-grid"><label>Start elevation (ft)<input id="planningStartElevation" type="number" step="1" placeholder="Optional"></label><label>End elevation (ft)<input id="planningEndElevation" type="number" step="1" placeholder="Optional"></label></div><label>Manual elevation note<input id="planningManualElevationNote" placeholder="Observed slope, contour estimate, or source"></label></details></section>
     <section class="planning-section"><h3>Driveway route comparison</h3><p class="small">Compare two routes inside the active concept only. The preferred route is saved with that concept.</p><div class="planning-grid"><label>Route A<select id="planningCompareRouteA"></select></label><label>Route B<select id="planningCompareRouteB"></select></label><label>Preferred route<select id="planningPreferredRoute"></select></label></div><button id="savePreferredDrivewayBtn" class="secondary outline" type="button">Mark preferred route</button><div id="drivewayComparisonReadout" class="terrain-readout"></div></section>
     <section class="planning-section"><h3>Build-site feasibility</h3><label>Build-site area<select id="planningBuildSiteFeature"></select></label><div class="planning-grid"><label>Classification<select id="planningBuildSiteClass"><option value="preferred">Preferred</option><option value="viable">Viable</option><option value="conditional">Conditional</option><option value="poor">Poor</option></select></label><label>Terrain note<input id="planningBuildTerrain" placeholder="Manual terrain / cut-fill note"></label><label>Pad footprint (sq ft)<input id="planningPadFootprint" type="number" min="0" value="1800"></label><label>Clearing %<input id="planningBuildClearingPct" type="number" min="0" max="100" value="35"></label><label>Cut/fill<select id="planningCutFill"><option value="light">Light</option><option value="moderate">Moderate</option><option value="heavy">Heavy</option></select></label><label>Drainage<select id="planningBuildDrainage"><option value="simple">Simple</option><option value="moderate">Moderate</option><option value="complex">Complex</option></select></label><label>Septic status<select id="planningSepticStatus"><option value="unknown">Unknown</option><option value="promising">Promising — verify</option><option value="constraint">Potential constraint</option></select></label><label>Utility note<input id="planningUtilityNote" placeholder="Distance / connection uncertainty"></label></div><div class="planning-checks"><label><input id="planningBuildRock" type="checkbox"> Rock likely</label><label><input id="planningBuildRetaining" type="checkbox"> Retaining likely</label><label><input id="planningBuildAccessHard" type="checkbox"> Difficult construction access</label></div><label>Build-site notes<textarea id="planningBuildNotes" rows="3" placeholder="Privacy, orientation, views, drainage, foundation considerations…"></textarea></label><button id="saveBuildSiteAnalysisBtn" class="secondary" type="button">Update build-site analysis</button><div id="buildSiteReadout" class="terrain-readout"></div></section>
@@ -177,8 +191,8 @@
 <script>window.OT_CONFIG={developerMode:false};</script>
 <script src="source-precedence.js?v=4.2.1" defer></script>
 <script src="route-policy.js?v=4.2.2" defer></script>
-<script src="intelligence.js?v=4.4.2" defer></script>
-<script src="property-workflow.js?v=4.4.2" defer></script>
+<script src="intelligence.js?v=5.0.2" defer></script>
+<script src="property-workflow.js?v=5.0.2" defer></script>
 <script src="zillow-facts.js?v=4.4.2" defer></script>
 <script src="property-research.js?v=4.4.2" defer></script>
 <script src="parcel-intelligence.js?v=4.4.2" defer></script>
@@ -186,18 +200,21 @@
 <script src="zillow-mapper.js?v=4.2.1" defer></script>
 <script src="save-reliability.js" defer></script>
 <script src="diagnostics.js" defer></script>
-<script src="overlay-manager.js?v=5.0.0" defer></script>
-<script src="app.js?v=4.4.2" defer></script>
+<script src="overlay-manager.js?v=5.0.2" defer></script>
+<script src="app.js?v=5.0.2" defer></script>
 <script src="zillow-workflow.js?v=4.2.1" defer></script>
 <script src="precision.js?v=4.2.1" defer></script>
 <script src="integrity.js" defer></script>
-<script src="planning.js?v=4.4.2" defer></script>
-<script src="elevation.js?v=4.4.2" defer></script>
-<script src="land-assessment.js?v=5.0.1" defer></script>
+<script src="planning.js?v=5.0.2" defer></script>
+<script src="elevation.js?v=5.0.2" defer></script>
+<script src="land-constraints.js?v=5.0.2" defer></script>
+<script src="recreation-layers.js?v=5.0.2" defer></script>
+<script src="land-assessment.js?v=5.0.2" defer></script>
 <script src="p0-regression-checks.js" defer></script>
 <script src="recovery.js?v=5.0.0.2" defer></script>
 <script src="stabilization.js?v=5.0.0.1" defer></script>
 <script src="smart-import.js?v=4.4.2" defer></script>
 <script src="parcel-workflow.js?v=5.0.1" defer></script>
+<script src="map-workspace.js?v=5.0.2" defer></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ const VERSION='4.4.0',precedence=window.OTSourcePrecedence;
 const FLEXIBILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
 const BUILDABILITY_OPTIONS=['unknown','excellent','good','difficult','unlikely'];
 const SUBDIVISION_OPTIONS=['unknown','strong','possible','difficult','unlikely'];
-const PROFILE_FIELDS=['existingResidencePresent','existingResidenceLivable','residenceStatus','residenceCondition','electric','waterSource','septicOrSewer','internet','driveway','outbuildings','additionalBuildSite','additionalBuildSiteConfidence','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','secondHomeFlexibilityNote','utilityExtensionDifficulty','multipleResidences','woodedOpenMix','slopeCharacter','waterFeatureType','waterFeatureReliability','waterFloodRisk'];
+const PROFILE_FIELDS=['existingResidencePresent','existingResidenceLivable','residenceStatus','residenceCondition','electric','waterSource','well','spring','septicOrSewer','sewer','internet','driveway','roadAccess','utilityAvailability','outbuildings','additionalBuildSite','additionalBuildSiteConfidence','secondHomeBuildability','secondHomeAccess','secondHomeSubdivisionPotential','secondHomeFlexibility','secondHomeFlexibilityNote','utilityExtensionDifficulty','multipleResidences','woodedOpenMix','slopeCharacter','waterFeatureType','waterFeatureReliability','waterFloodRisk'];
 const MANUAL_PROPERTY_FIELDS=['name','status','visitStatus','propertyType','waterFeature','acres','price','beds','baths','sqft','notes'];
 const NUMERIC_PROPERTY_FIELDS=new Set(['acres','price','beds','baths','sqft']);
 const FIELD_REGISTRY=Object.freeze({
@@ -16,11 +16,14 @@ const FIELD_REGISTRY=Object.freeze({
  waterSource:'propertyIntelligence.propertyProfile.waterSource',
  waterConnectionStatus:'propertyIntelligence.propertyProfile.publicWater',
  wellStatus:'propertyIntelligence.propertyProfile.well',
+ springStatus:'propertyIntelligence.propertyProfile.spring',
  septicStatus:'propertyIntelligence.propertyProfile.septicOrSewer',
  sewerStatus:'propertyIntelligence.propertyProfile.sewer',
  electricStatus:'propertyIntelligence.propertyProfile.electric',
  internet:'propertyIntelligence.propertyProfile.internet',
  drivewayStatus:'propertyIntelligence.propertyProfile.driveway',
+ roadAccess:'propertyIntelligence.propertyProfile.roadAccess',
+ utilityAvailability:'propertyIntelligence.propertyProfile.utilityAvailability',
  outbuildings:'propertyIntelligence.propertyProfile.outbuildings',
  garage:'propertyIntelligence.zillowLand.garage',carport:'propertyIntelligence.zillowLand.carport',
  barn:'propertyIntelligence.zillowLand.barn',stable:'propertyIntelligence.zillowLand.stable',
@@ -53,13 +56,17 @@ function profileForRecord(record={},legacyEntry={}){
  normalized.residenceSquareFootage=Number(record.sqft)>0?Number(record.sqft):(Number(source?.residenceSquareFootage)>0?Number(source.residenceSquareFootage):null);
  return normalized
 }
+function effectiveInfrastructure(record={}){
+ const profile=profileForRecord(record),livable=profile.existingResidenceLivable===true||profile.residenceStatus==='livable'||profile.residenceCondition==='livable',infer=(value,label,presentValue='present-inferred')=>value==='none'?{state:'absent',value,source:canonicalSource(record,`propertyIntelligence.propertyProfile.${label}`)}:value&&value!=='unknown'?{state:'present',value,source:canonicalSource(record,`propertyIntelligence.propertyProfile.${label}`)}:livable?{state:'present',value:presentValue,source:'inferred-existing-livable-home'}:{state:'unknown',value:'unknown',source:'unknown'},accessField=profile.driveway==='unknown'?'roadAccess':'driveway';
+ return {livable,electric:infer(profile.electric,'electric'),water:infer(profile.waterSource,'waterSource','present-type-unknown'),wastewater:infer(profile.septicOrSewer,'septicOrSewer','present-type-unknown'),access:infer(profile[accessField],accessField),internet:profile.internet==='none'?{state:'absent',value:'none',source:canonicalSource(record,'propertyIntelligence.propertyProfile.internet')}:profile.internet&&profile.internet!=='unknown'?{state:'present',value:profile.internet,source:canonicalSource(record,'propertyIntelligence.propertyProfile.internet')}:{state:'unknown',value:'unknown',source:'unknown'},futureCapacity:{electric:'unknown',water:'unknown',wastewater:'unknown',legalAccess:profile.secondHomeAccess||'unknown'}}
+}
 function developmentFromProfile(record){
- const next=clone(record),profile=profileForRecord(next),sources={...(next.fieldSources||{})},development={driveway:'unknown',homesite:'unknown',utilities:'unknown',...(next.development||{})};
+ const next=clone(record),profile=profileForRecord(next),effective=effectiveInfrastructure(next),sources={...(next.fieldSources||{})},development={driveway:'unknown',homesite:'unknown',utilities:'unknown',...(next.development||{})};
  const assign=(key,value)=>{const path=`development.${key}`;if(!value||precedence?.normalizeSource?.(canonicalSource(next,path))==='user-confirmed')return;if(development[key]!==value){development[key]=value;sources[path]='inferred'}};
  if(profile.existingResidencePresent===true)assign('homesite','home');else if(['identified','likely'].includes(profile.additionalBuildSite))assign('homesite','identified');else if(profile.additionalBuildSite==='not-viable')assign('homesite','steep');
- if(['year-round','verified','recorded'].includes(profile.driveway))assign('driveway','existing');else if(profile.driveway==='limited')assign('driveway','rough');else if(profile.driveway==='none')assign('driveway','none');
+ if(['year-round','verified','recorded'].includes(profile.driveway)||effective.access.source==='inferred-existing-livable-home')assign('driveway','existing');else if(profile.driveway==='limited')assign('driveway','rough');else if(profile.driveway==='none')assign('driveway','none');
  const installed=[profile.electric,profile.waterSource,profile.septicOrSewer].filter(value=>['verified','verified-well','public-water'].includes(value)).length,available=[profile.electric,profile.waterSource,profile.septicOrSewer].filter(value=>['available','recorded'].includes(value)).length;
- if(installed)assign('utilities','onsite');else if(available)assign('utilities','roadside');
+ if(installed||[effective.electric,effective.water,effective.wastewater].every(item=>item.state==='present'))assign('utilities','onsite');else if(available)assign('utilities','roadside');
  next.development=development;next.fieldSources=sources;return next
 }
 function applyProfileDraft(record,draft={}){
@@ -198,5 +205,5 @@ function runRegressionChecks(){
  };
  return {passed:Object.values(checks).every(Boolean),checks,fixtures:{complete:completeScore.total,shared:sharedScore.total,raw:rawScore.total,noPath:noPathScore.total}}
 }
-window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,manualPropertyFields:MANUAL_PROPERTY_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,developmentFromProfile,synchronizeRecord,applyProfileDraft,applyManualDraft,applyProposals,parcelCertainty,researchAssessment,applyResearchAssessment,propertyConclusions,decisionSummary,completionSummary,runRegressionChecks};
+window.OTPropertyWorkflow={VERSION,fieldRegistry:FIELD_REGISTRY,profileFields:PROFILE_FIELDS,manualPropertyFields:MANUAL_PROPERTY_FIELDS,flexibilityOptions:FLEXIBILITY_OPTIONS,canonicalPath,profileForRecord,effectiveInfrastructure,developmentFromProfile,synchronizeRecord,applyProfileDraft,applyManualDraft,applyProposals,parcelCertainty,researchAssessment,applyResearchAssessment,propertyConclusions,decisionSummary,completionSummary,runRegressionChecks};
 })();

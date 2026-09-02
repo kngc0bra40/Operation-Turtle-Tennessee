@@ -64,12 +64,14 @@ function beginDrag(event){if(!isDesktop()||event.button!==0||event.target.closes
 function moveDrag(event){if(!drag)return;const pad=10,left=Math.min(Math.max(pad,drag.left+event.clientX-drag.startX),Math.max(pad,innerWidth-drag.width-pad)),top=Math.min(Math.max(64,drag.top+event.clientY-drag.startY),Math.max(64,innerHeight-drag.height-pad));drag.entry.element.style.left=`${left}px`;drag.entry.element.style.top=`${top}px`}
 function endDrag(){drag=null}
 function inspect(){if(observerBusy)return;observerBusy=true;try{for(const name of openNames()){ensureControls(name);const item=byName(name);if(item&&!item.element.dataset.otObservedOpen){prepare(name);item.element.dataset.otObservedOpen='true';opened(name)}}Object.keys(definitions).forEach(name=>{const item=byName(name);if(item&&!item.config.isOpen(item.element))delete item.element.dataset.otObservedOpen})}finally{observerBusy=false}}
+function enterMapMode(){if(!isDesktop())return false;closeAdd();closeCompare();document.querySelector('[data-view="mapView"]')?.click();minimize('dossier');const toolbar=document.getElementById('propertyMapToolbar');if(toolbar)toolbar.hidden=false;setTimeout(()=>window.OT_MAP?.invalidateSize?.(),50);return true}
+function restorePanels(){if(!isDesktop())return false;[...minimized].forEach(name=>restore(name));const toolbar=document.getElementById('propertyMapToolbar');if(toolbar)toolbar.hidden=true;setTimeout(()=>window.OT_MAP?.invalidateSize?.(),50);return true}
 function install(){
   document.getElementById('panelDock')?.setAttribute('hidden','');
   document.addEventListener('click',event=>{const minimizeButton=event.target.closest('[data-panel-minimize]'),restoreButton=event.target.closest('[data-panel-restore]'),closeButton=event.target.closest('[data-panel-close]');if(minimizeButton){event.preventDefault();minimize(minimizeButton.dataset.panelMinimize||Object.keys(definitions).find(name=>byName(name)?.element.contains(minimizeButton)));return}if(restoreButton){event.preventDefault();restore(restoreButton.dataset.panelRestore);return}if(closeButton){event.preventDefault();closePanel(closeButton.dataset.panelClose)}});
   document.addEventListener('pointerdown',beginDrag);document.addEventListener('pointermove',moveDrag);document.addEventListener('pointerup',endDrag);addEventListener('resize',()=>Object.keys(definitions).forEach(name=>constrain(byName(name)?.element)));
   new MutationObserver(inspect).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden']});inspect()
 }
-window.OTOverlayManager={prepare,opened,minimize,restore,close:closePanel,active:openNames,definitions};
+window.OTOverlayManager={prepare,opened,minimize,restore,enterMapMode,restorePanels,close:closePanel,active:openNames,definitions};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();

@@ -157,12 +157,12 @@ function pointInParcel(value,polygons=[]){return polygons.some(polygon=>pointInR
 function sampleParcel(geometry,options={}){
   const polygons=parcelPolygons(geometry),all=polygons.flat(2),maxSamples=Math.max(9,Math.min(64,Math.floor(num(options.maxSamples)||49)));
   if(!all.length)return [];
-  const minLat=Math.min(...all.map(item=>item.lat)),maxLat=Math.max(...all.map(item=>item.lat)),minLng=Math.min(...all.map(item=>item.lng)),maxLng=Math.max(...all.map(item=>item.lng)),side=Math.max(3,Math.ceil(Math.sqrt(maxSamples*1.8))),points=[];
+  const minLat=Math.min(...all.map(item=>item.lat)),maxLat=Math.max(...all.map(item=>item.lat)),minLng=Math.min(...all.map(item=>item.lng)),maxLng=Math.max(...all.map(item=>item.lng)),side=Math.max(3,Math.ceil(Math.sqrt(maxSamples*1.8))),latStep=(maxLat-minLat)/side,lngStep=(maxLng-minLng)/side,points=[];
   for(let row=0;row<side;row++)for(let column=0;column<side;column++){
-    const candidate={lat:minLat+(maxLat-minLat)*(row+.5)/side,lng:minLng+(maxLng-minLng)*(column+.5)/side};
+    const candidate={lat:minLat+latStep*(row+.5),lng:minLng+lngStep*(column+.5),gridRow:row,gridColumn:column,gridMinLat:minLat,gridMinLng:minLng,gridLatStep:latStep,gridLngStep:lngStep,cellHalfLat:latStep/2,cellHalfLng:lngStep/2};
     if(pointInParcel(candidate,polygons))points.push(candidate);
   }
-  polygons.forEach(polygon=>{const ring=polygon[0],centroid={lat:ring.reduce((sum,item)=>sum+item.lat,0)/ring.length,lng:ring.reduce((sum,item)=>sum+item.lng,0)/ring.length};if(pointInParcel(centroid,[polygon])&&!points.some(item=>haversineFeet(item,centroid)<20))points.unshift(centroid)});
+  /* Candidate geometry depends on a stable grid. Avoid injecting non-grid centroids here. */
   return points.slice(0,maxSamples);
 }
 function contiguousCandidateZones(samples=[],parcelAcreage=null){
