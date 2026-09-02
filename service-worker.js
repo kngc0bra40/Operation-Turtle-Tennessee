@@ -1,4 +1,4 @@
-const CACHE='operation-turtle-v5.0-reliability-automation-r1';
+const CACHE='operation-turtle-v5.0-runtime-stability-r1';
 const CORE=['./','./index.html','./styles.css','./properties.js','./listing-input.js','./source-precedence.js','./route-policy.js','./intelligence.js','./property-workflow.js','./zillow-facts.js','./property-research.js','./parcel-intelligence.js','./listing-monitor.js','./zillow-mapper.js','./save-reliability.js','./diagnostics.js','./overlay-manager.js','./app.js','./zillow-workflow.js','./precision.js','./integrity.js','./planning.js','./elevation.js','./land-constraints.js','./recreation-layers.js','./land-assessment.js','./p0-regression-checks.js','./recovery.js','./stabilization.js','./smart-import.js','./parcel-workflow.js','./map-workspace.js','./manifest.webmanifest','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));

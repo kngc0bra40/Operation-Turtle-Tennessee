@@ -29,3 +29,4 @@ jobs:
           node scripts/verify-parcel-coverage.js
           node scripts/verify-land-assessment-2.js
           node scripts/verify-v5-reliability-automation.js
+          node scripts/verify-runtime-stability.js
