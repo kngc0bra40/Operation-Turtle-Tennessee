@@ -39,7 +39,7 @@
       <button id="propertyMapParcelBtn" type="button">Parcel</button>
       <button id="propertyMapAssessmentBtn" type="button">Land Assessment</button>
       <button id="propertyMapPlanningBtn" type="button">Site Planning</button>
-      <button id="propertyMapRestoreBtn" type="button">Restore panels</button>
+      <button id="propertyMapRestoreBtn" type="button">Open property panel</button>
     </div>
     <div id="mapSearchPanel" class="map-flyout search-results-panel" hidden></div>
     <div id="layersPanel" class="map-flyout layers-panel" hidden>
@@ -146,7 +146,7 @@
   </div>
 </aside>
 <aside id="parcelFixPanel" class="workspace-panel parcel-fix-panel" hidden aria-label="Fix Parcel Boundary">
-  <div class="workspace-panel-head" data-panel-drag-handle><div><h2>Fix Parcel</h2><p id="parcelFixProperty">Choose the simplest reliable boundary source.</p></div><div class="workspace-panel-controls"><button type="button" data-panel-minimize aria-label="Minimize Fix Parcel" title="Minimize">—</button><button id="closeParcelFixBtn" type="button" aria-label="Close Fix Parcel" title="Close">✕</button></div></div>
+  <div class="workspace-panel-head"><div><h2>Fix Parcel</h2><p id="parcelFixProperty">Choose the simplest reliable boundary source.</p></div><div class="workspace-panel-controls"><button id="closeParcelFixBtn" type="button" aria-label="Close Fix Parcel" title="Close">✕</button></div></div>
   <div class="parcel-fix-body">
     <div id="parcelFixStatus" class="parcel-fix-status" role="status" aria-live="polite"><b>Parcel boundary needed</b><span>Operation Turtle will try the available public source first.</span></div>
     <section class="parcel-fix-options" aria-label="Parcel recovery choices">
@@ -154,6 +154,7 @@
       <div class="parcel-id-lookup"><label for="parcelIdInput"><b>Enter Parcel ID</b><span>Paste the complete ID from an assessor record. Spaces, dashes, and decimal points are accepted and preserved.</span></label><div><input id="parcelIdInput" autocomplete="off" placeholder="Example: 078-123-010.00"><button id="parcelIdFindBtn" class="secondary" type="button">Find Parcel</button></div></div>
       <button id="openTnPropertyViewerBtn" type="button"><b>Open Tennessee Property Viewer ↗</b><span>Find the parcel visually, then copy its Parcel ID or use a screenshot for tracing.</span></button>
       <button id="parcelSelectMapBtn" type="button"><b>Select Parcel on Map</b><span>Choose one or more visible candidates.</span></button>
+      <button id="parcelAddExistingBtn" type="button"><b>Add Parcel</b><span>Add an adjoining parcel by Parcel ID, map selection, upload, or drawing.</span></button>
       <label class="parcel-file-choice"><b>Upload Parcel File or Map</b><span>GeoJSON, KML, KMZ, zipped Shapefile, GPX, PDF, or image.</span><input id="parcelFixFileInput" type="file" accept=".geojson,.json,.kml,.kmz,.zip,.gpx,.pdf,.png,.jpg,.jpeg,.webp,application/geo+json,application/json,application/vnd.google-earth.kml+xml,application/pdf,image/png,image/jpeg,image/webp" hidden></label>
       <button id="parcelDrawBtn" type="button"><b>Draw / Edit Boundary</b><span>Click parcel corners and adjust individual points.</span></button>
     </section>
@@ -170,6 +171,7 @@
   </div>
 </aside>
 <div id="panelDock" class="panel-dock" aria-label="Minimized workspaces"></div>
+<div id="appToast" class="app-toast" role="status" aria-live="polite" hidden></div>
 <div id="pinModalBackdrop" class="modal-backdrop" hidden></div>
 <div id="pinModal" class="pin-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pinModalTitle">
   <div class="pin-modal-head"><div><strong id="pinModalTitle">Add map pin</strong><small>Save a location to the overall map or a property.</small></div><button id="closePinModalBtn" type="button">✕</button></div>
@@ -195,26 +197,26 @@
 <script src="property-workflow.js?v=5.0.2" defer></script>
 <script src="zillow-facts.js?v=4.4.2" defer></script>
 <script src="property-research.js?v=4.4.2" defer></script>
-<script src="parcel-intelligence.js?v=4.4.2" defer></script>
-<script src="listing-monitor.js?v=4.4.2" defer></script>
+<script src="parcel-intelligence.js?v=5.0.3" defer></script>
+<script src="listing-monitor.js?v=5.0.3" defer></script>
 <script src="zillow-mapper.js?v=4.2.1" defer></script>
 <script src="save-reliability.js" defer></script>
 <script src="diagnostics.js" defer></script>
-<script src="overlay-manager.js?v=5.0.2" defer></script>
-<script src="app.js?v=5.0.2" defer></script>
+<script src="overlay-manager.js?v=5.0.3" defer></script>
+<script src="app.js?v=5.0.3" defer></script>
 <script src="zillow-workflow.js?v=4.2.1" defer></script>
-<script src="precision.js?v=4.2.1" defer></script>
+<script src="precision.js?v=5.0.3" defer></script>
 <script src="integrity.js" defer></script>
 <script src="planning.js?v=5.0.2" defer></script>
 <script src="elevation.js?v=5.0.2" defer></script>
 <script src="land-constraints.js?v=5.0.2" defer></script>
 <script src="recreation-layers.js?v=5.0.2" defer></script>
-<script src="land-assessment.js?v=5.0.2" defer></script>
+<script src="land-assessment.js?v=5.0.3" defer></script>
 <script src="p0-regression-checks.js" defer></script>
 <script src="recovery.js?v=5.0.0.2" defer></script>
 <script src="stabilization.js?v=5.0.0.1" defer></script>
 <script src="smart-import.js?v=4.4.2" defer></script>
-<script src="parcel-workflow.js?v=5.0.1" defer></script>
-<script src="map-workspace.js?v=5.0.2" defer></script>
+<script src="parcel-workflow.js?v=5.0.3" defer></script>
+<script src="map-workspace.js?v=5.0.3" defer></script>
 </body>
 </html>

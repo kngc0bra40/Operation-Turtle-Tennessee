@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+'use strict';
+/* Fixture-only Version 5.0 reliability, multi-parcel, UX, and automation checks. No browser storage is read or written. */
+const fs=require('fs'),path=require('path'),vm=require('vm'),root=path.resolve(__dirname,'..'),read=file=>fs.readFileSync(path.join(root,file),'utf8'),json=file=>JSON.parse(read(file));
+const listeners={},document={readyState:'loading',getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(name,handler)=>{listeners[name]=handler},createElement:()=>({}),body:{}},context={window:{addEventListener:()=>{}},document,MutationObserver:function(){this.observe=()=>{}},structuredClone,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,Date,Number,Object,Array,JSON,Math,encodeURIComponent,fetch};context.window.window=context.window;vm.createContext(context);
+for(const file of ['route-policy.js','source-precedence.js','intelligence.js','property-workflow.js','parcel-intelligence.js','parcel-workflow.js','elevation.js','land-constraints.js','planning.js','recreation-layers.js','land-assessment.js','property-research.js','listing-monitor.js','precision.js'])vm.runInContext(read(file),context);
+const parcel=context.window.OTParcelIntelligence,workflow=context.window.OTParcelWorkflow,elevation=context.window.OTElevation,constraints=context.window.OTLandConstraints,planning=context.window.OTPlanning,land=context.window.OTLandAssessment,research=context.window.OTPropertyResearch,monitor=context.window.OTListingMonitor,precision=context.window.OTPrecision,fixture=json('scripts/fixtures/bethlehem-parcels.json');
+const bethlehem={id:'bethlehem',address:'582 Bethlehem Rd, Madisonville, TN 37354',lat:35.4412,lng:-84.3447,acres:11.32,price:549000,propertyType:'existing-livable-home',beds:3,sqft:1800,notes:'Pond and two parcels; verify second-home septic.',parcel:{state:'TN',county:'Monroe'},propertyIntelligence:{propertyProfile:{existingResidencePresent:true,existingResidenceLivable:true,residenceCondition:'livable',septicOrSewer:'recorded'}},sitePlanning:{features:[]},activityHistory:[]};
+const parcelResult=parcel.resultForCandidates(bethlehem,parcel.PROVIDERS.tnPropertyViewer,fixture.features,fixture.retrievedAt),suggestion=parcelResult.multiParcelSuggestion,combined=parcel.combineFeatures(fixture.features,{source:fixture.source}),confirmed=workflow.confirmedRecord(bethlehem,{...combined,official:true,verified:false,source:fixture.source}),sampled=elevation.sampleParcel(combined.geometry,{maxSamples:96}),samples=sampled.map((point,index)=>({...point,elevationFeet:990+index%9,slopePct:index%17===0?23:7})),screen={success:true,provider:'Fixture elevation',retrievedAt:'2026-09-02T17:40:00.000Z',geometryFingerprint:'bethlehem-two-parcels',parcelCertainty:'multi-parcel-property',samples,drainageCandidates:[],slopeBands:{'under-10':{percent:92},'10-20':{percent:0},'20-30':{percent:8},'30-plus':{percent:0}},minimumElevationFeet:990,maximumElevationFeet:998,reliefFeet:8,averageSlopePct:8,maximumLocalSlopePct:23},screened=constraints.prepareCandidateScreen(confirmed,screen,{exclusions:[],providers:[],failures:[]}),planned=planning.generateParcelCandidates(confirmed,screened).property,assessment=land.buildAssessment(planned,screened),decision=precision.decisionFor({...planned,landAssessment:assessment});
+const flatTerrain={...screen,slopeBands:{'under-10':{percent:95},'10-20':{percent:5},'20-30':{percent:0},'30-plus':{percent:0}},averageSlopePct:4,maximumLocalSlopePct:9,candidateZones:[{label:'Candidate A',center:{lat:35.44,lng:-84.34},averageSlopePct:4,approximateScreenedAcres:2}]},mountainTerrain={...screen,slopeBands:{'under-10':{percent:18},'10-20':{percent:22},'20-30':{percent:30},'30-plus':{percent:30}},averageSlopePct:24,maximumLocalSlopePct:48,candidateZones:[{label:'Candidate A',center:{lat:35.44,lng:-84.34},averageSlopePct:12,approximateScreenedAcres:.8}]};
+const baseFixture={...bethlehem,id:'coverage',address:'1 Coverage Rd, TN',parcelGeometry:fixture.features[1].geometry,parcelIntelligence:{state:{id:'verified-gis-parcel'},gisAcreage:5.46,parcelIds:['fixture-1']},notes:'Wooded acreage',sitePlanning:{features:[]}},coverage=[
+  ['Happy Hollow',{...baseFixture,id:'happy-hollow',acres:45.76},flatTerrain],
+  ['582 Bethlehem',planned,screened],
+  ['Mountainous',{...baseFixture,id:'mountain'},mountainTerrain],
+  ['Flatter acreage',{...baseFixture,id:'flat'},flatTerrain],
+  ['Multi-parcel',confirmed,flatTerrain],
+  ['Terrain unavailable',{...baseFixture,id:'terrain-down'},null],
+  ['Manual parcel required',{...baseFixture,id:'manual-needed',parcelGeometry:null,parcelIntelligence:{}},null]
+].map(([name,record,terrain])=>{const value=record.parcelGeometry?land.buildAssessment(record,terrain):null,state=land.assessmentState(record,value);return {Property:name,Parcel:record.parcelGeometry?'Ready':'Missing',Terrain:terrain?'Complete':'Unavailable',Hydrology:terrain?'Fixture':'Unavailable',CandidateSites:value?.candidateZones?.length||0,AssessmentStatus:state.label,Reason:value?.status==='partial'?'Terrain unavailable':record.parcelGeometry?'':'Parcel required'}});
+const researchFixture=read('scripts/fixtures/happy-hollow-research.rss'),researchResult=research.parseResearchResponse(researchFixture,{address:'2792 Happy Hollow Rd, Sevierville, TN 37862'}),monitorBase=monitor.establishBaseline({id:'monitor',price:895000,acres:11.32,listingStatus:'Active'}),monitorChanged=monitor.applyObservation(monitorBase,{success:true,snapshot:monitor.snapshotFromRecord({...monitorBase,price:799000,listingStatus:'Back on Market'},{checkedAt:'2026-09-02T17:45:00.000Z',verified:{price:true,status:true,acreage:true}})}),html=read('index.html'),app=read('app.js'),overlays=read('overlay-manager.js'),styles=read('styles.css'),workflowSource=read('parcel-workflow.js');
+const checks={
+  bethlehemDetectsTwoParcels:parcelResult.failure?.code==='possible-multi-parcel'&&suggestion?.count===2,
+  bethlehemCorrectIds:['062 104 02304 000 2026','062 104 02305 000 2026'].every(id=>suggestion.parcelIds.includes(id)),
+  mappedZeroAcreParcelRecovered:suggestion.parcels.find(item=>item.parcelId.includes('02305'))?.acres>5,
+  combinedAcreageMatchesListing:suggestion.gisAcres>=11.1&&suggestion.gisAcres<=11.4&&suggestion.acreageDifferencePct<3,
+  taxIdentityRetained:confirmed.parcelIntelligence.parcels.length===2&&confirmed.parcelGeometry.type==='MultiPolygon',
+  existingParcelsImproveFlexibility:confirmed.parcelIntelligence.subdivisionLayout.existingLegalParcels===true,
+  pondRemainsExcluded:screened.hardExclusions.some(item=>item.id==='user-confirmed-582-bethlehem-pond'),
+  candidatesUseFullBoundary:screened.constraintSummary.screenedUsableAcres>5&&screened.candidateZones.length>0,
+  candidatesAvoidPond:screened.candidateZones.every(candidate=>!constraints.candidateOverlapsConstraint(candidate,constraints.BETHLEHEM_POND)),
+  multiParcelAssessment:assessment.subdivisionGeometry.existingLegalParcels===true&&assessment.acreage>11,
+  recommendationUsesMaterialFacts:decision.explanation.some(value=>/separate parcel identities/i.test(value))&&decision.nextActions.some(value=>/parcel conveys/i.test(value)),
+  septicQuestionRemains:decision.nextActions.some(value=>/perc|wastewater/i.test(value)),
+  allAssessmentStatesCovered:['Complete','Partial','Needs Parcel'].every(label=>coverage.some(row=>row.AssessmentStatus===label)),
+  monitorDetectsMeaningfulChanges:monitorChanged.status==='changed'&&monitorChanged.changes.some(item=>item.type==='price')&&monitorChanged.changes.some(item=>item.type==='status'),
+  unavailableDiffersFromUnchanged:monitor.applyObservation(monitorBase,{success:false,failure:{code:'blocked',message:'Could not verify'}}).status==='incomplete',
+  researchImportanceStored:researchResult.findings.important.length>0&&researchResult.findings.sources.every(item=>item.importance&&item.category),
+  singlePropertyPanel:app.includes("tabs=['Overview','Property','Map & Land','Research']")&&overlays.includes('single-workspace coordination'),
+  noWindowManager:!overlays.includes('beginDrag')&&!overlays.includes('dockButton')&&!overlays.includes('data-panel-minimize'),
+  collapseOpenControls:overlays.includes('Collapse panel')&&html.includes('Open property panel'),
+  clickFeedbackAvailable:app.includes('ot-click-feedback')&&styles.includes('.app-toast'),
+  manualParcelAdditionAvailable:html.includes('id="parcelAddExistingBtn"')&&workflowSource.includes('appendParcelMode'),
+  noParcelWorkflowStorageWrites:!workflowSource.includes('localStorage.setItem')&&!workflowSource.includes('localStorage.removeItem')
+};
+console.table(coverage);for(const [name,passed] of Object.entries(checks))console.log(`${passed?'PASS':'FAIL'} ${name}`);if(!Object.values(checks).every(Boolean)){console.error(`Version 5.0 reliability/automation verification failed at: ${Object.entries(checks).filter(([,passed])=>!passed).map(([name])=>name).join(', ')}`);process.exitCode=1}else console.log(`PASS Version 5.0 reliability and automation (${Object.keys(checks).length} checks).`);

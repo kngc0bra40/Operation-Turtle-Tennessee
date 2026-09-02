@@ -105,7 +105,7 @@ const compactUiChecks={
   dossierReviewRenderedByDefault:app.includes('appendPropertyIntelligence(id);appendPropertyDataReview(id)'),
   profileSaveButtonResets:app.includes("saveButton.textContent='Save Profile'"),
   legacyDossierFactsHidden:stabilizationSource.includes("querySelectorAll('.kpis,.dossier-summary-strip")&&stabilizationSource.includes("classList.add('dossier-legacy-hidden')")&&read('styles.css').includes('.dossier-legacy-hidden{display:none!important}'),
-  desktopCompareIsolatesOtherPanels:app.includes("OTOverlayManager?.prepare?.('compare')")&&overlayManagerSource.includes("minimize('dossier')")&&overlayManagerSource.includes('closeAdd()'),
+  desktopCompareIsolatesOtherPanels:app.includes("OTOverlayManager?.prepare?.('compare')")&&overlayManagerSource.includes("collapseDossier()")&&overlayManagerSource.includes('closeAdd()')&&overlayManagerSource.includes("contextual.forEach(closePanel)"),
   versionInformationCurrent:app.includes('Operation Turtle 5.0 Preview')&&app.includes('feature/happy-hollow-benchmark-reliability'),
   parcelDiagnosticsAvailable:stabilizationSource.includes('data-parcel-diagnostics')&&stabilizationSource.includes('Parcel lookup diagnostics'),
   parcelSourceStatusReflectsConnection:app.includes('function refreshParcelSourceStatus')&&app.includes("connected${provider?")

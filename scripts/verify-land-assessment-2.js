@@ -28,7 +28,7 @@ const html=read('index.html'),mapWorkspace=read('map-workspace.js'),recreationSo
  weakerRefreshDoesNotDowngrade:refreshed.propertyIntelligence.propertyProfile.electric==='verified'&&refreshed.propertyIntelligence.propertyProfile.waterSource==='verified-well'&&refreshed.propertyIntelligence.propertyProfile.septicOrSewer==='verified'&&refreshed.propertyIntelligence.propertyProfile.driveway==='year-round',
  mapToolbarComplete:['propertyMapParcelBtn','propertyMapAssessmentBtn','propertyMapPlanningBtn','propertyMapRestoreBtn'].every(id=>html.includes(`id="${id}"`)),
  mapModeDesktopOnly:mapWorkspace.includes("matchMedia('(min-width:900px)')")&&read('styles.css').includes('@media(max-width:899px){.property-map-toolbar'),
- minimizedDraggedPanelsStayHidden:read('styles.css').includes('[data-ot-minimized="true"]{display:none!important}'),
+ singleCollapseModel:mapWorkspace.includes('Open a property before entering map mode')&&read('overlay-manager.js').includes('collapseDossier')&&!read('overlay-manager.js').includes('beginDrag'),
  optionalRecreationLayers:['layerPublicFederal','layerPublicState','layerAtvSxs','layerRecreationLakes','layerOutdoorPois'].every(id=>new RegExp(`id="${id}" type="checkbox"(?! checked)`).test(html)),
  publicLandsUsePadUs:context.window.OTRecreationLayers.PAD_US.includes('Fee_Managers_PADUS'),
  recreationMarkersAreKeyboardAccessible:recreationSource.includes('keyboard:true')&&recreationSource.includes("setAttribute('aria-label'"),
