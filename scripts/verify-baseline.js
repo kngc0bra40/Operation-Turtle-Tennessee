@@ -102,7 +102,7 @@ const compactUiChecks={
   legacyAddFormHidden:read('styles.css').includes('.smart-creation-card> :not(#smartImportPanel){display:none!important}'),
   routeEditorEscape:stabilizationSource.includes("event.key==='Escape'"),
   narrowScreenRules:read('styles.css').includes('@media(max-width:760px){.smart-create-panel')&&read('styles.css').includes('.conclusion-grid,.dossier-evaluation-summary,.profile-route-grid{grid-template-columns:1fr}'),
-  dossierReviewRenderedByDefault:app.includes('appendPropertyIntelligence(id);appendPropertyDataReview(id)'),
+  dossierReviewRenderedByDefault:['appendPropertyIntelligence(id);appendPropertyDataReview(id)','appendPropertyIntelligence(key);appendPropertyDataReview(key)'].some(sequence=>app.includes(sequence)),
   profileSaveButtonResets:app.includes("saveButton.textContent='Save Profile'"),
   legacyDossierFactsHidden:stabilizationSource.includes("querySelectorAll('.kpis,.dossier-summary-strip")&&stabilizationSource.includes("classList.add('dossier-legacy-hidden')")&&read('styles.css').includes('.dossier-legacy-hidden{display:none!important}'),
   desktopCompareIsolatesOtherPanels:app.includes("OTOverlayManager?.prepare?.('compare')")&&overlayManagerSource.includes("collapseDossier()")&&overlayManagerSource.includes('closeAdd()')&&overlayManagerSource.includes("contextual.forEach(closePanel)"),
