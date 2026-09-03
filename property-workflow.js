@@ -103,17 +103,15 @@ function applyProposals(record,proposals={},source='research',{explicit=false}={
 }
 const meaningful=value=>Array.isArray(value)?value.length>0:value&&typeof value==='object'?Object.keys(value).length>0:String(value??'').trim()!==''&&String(value).toLowerCase()!=='unknown';
 function parcelCertainty(record={}){
- const parcel=plain(record.parcel),intelligence=plain(record.parcelIntelligence),state=intelligence.state?.id||intelligence.state||'',geometry=record.parcelGeometry,hasGeometry=geometry&&['Polygon','MultiPolygon'].includes(geometry.type),geometrySource=canonicalSource(record,'parcelGeometry');
+ const parcel=plain(record.parcel),intelligence=plain(record.parcelIntelligence),state=intelligence.state?.id||intelligence.state||'',usable=window.OTParcelIntelligence?.getUsablePropertyGeometry?.(record),geometry=usable?.geometry||null,hasGeometry=Boolean(usable?.usable),geometrySource=canonicalSource(record,'parcelGeometry');
  if(state==='multi-parcel-property'&&hasGeometry)return {id:'verified-parcel-polygon',stateId:state,label:'Multi-parcel property',terrainEligible:true};
- if(state==='user-corrected'&&hasGeometry)return {id:'user-adjusted-parcel',stateId:state,label:'User-corrected parcel',terrainEligible:true};
+ if(['user-confirmed-parcel','user-corrected','confirmed-manual-boundary','confirmed-imported-boundary'].includes(state)&&hasGeometry)return {id:'user-adjusted-parcel',stateId:state,label:'User-confirmed parcel',terrainEligible:true};
  if(state==='verified-gis-parcel'&&hasGeometry)return {id:'verified-parcel-polygon',stateId:state,label:'Verified GIS parcel',terrainEligible:true};
  if(state==='parcel-match')return {id:'parcel-matched',stateId:state,label:'Parcel match',terrainEligible:false};
  if(state==='parcel-review-required')return {id:'parcel-review-required',stateId:state,label:'Parcel review required',terrainEligible:false};
  if(state==='no-parcel-match')return {id:'no-parcel-match',stateId:state,label:'No parcel match',terrainEligible:false};
  if(state==='approximate-parcel')return {id:'approximate-parcel',stateId:state,label:'Approximate parcel',terrainEligible:false};
  if(hasGeometry&&precedence?.normalizeSource?.(geometrySource)==='user-confirmed')return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};
- if(Array.isArray(record.boundary)&&record.boundary.length>=3)return {id:'user-adjusted-parcel',label:'User-adjusted parcel',terrainEligible:true};
- if(hasGeometry)return {id:'verified-parcel-polygon',label:'Verified parcel polygon',terrainEligible:true};
  if(/approximate/i.test(String(parcel.matchStatus||parcel.confidence||'')))return {id:'approximate-parcel',label:'Approximate parcel',terrainEligible:false};
  if(parcel.parcelId||record.parcelNumber)return {id:'parcel-matched',label:'Parcel matched',terrainEligible:false};
  return {id:'address-point-only',label:'Address point only',terrainEligible:false};

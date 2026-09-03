@@ -61,8 +61,8 @@ async function usgsPointElevation(point,options={}){
   if(typeof fetchImpl!=='function')throw Object.assign(new Error('Fetch is not available in this browser.'),{code:'fetch-unavailable',retryable:false});
   const url=new URL(USGS_3DEP_PROVIDER.endpoint);
   url.searchParams.set('x',String(point.lng));url.searchParams.set('y',String(point.lat));url.searchParams.set('wkid','4326');url.searchParams.set('units','Feet');url.searchParams.set('includeDate','false');
-  let response;
-  try{response=await fetchImpl(url.toString(),{method:'GET',headers:{Accept:'application/json'}})}catch(error){throw Object.assign(new Error('The elevation provider could not be reached directly from this browser.'),{code:'cors-or-network',retryable:true,cause:String(error?.message||error)})}
+  const controller=typeof AbortController==='function'?new AbortController():null,timeoutMs=Math.max(25,num(options.timeoutMs)||12000),timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;let response;
+  try{response=await fetchImpl(url.toString(),{method:'GET',headers:{Accept:'application/json'},...(controller?{signal:controller.signal}:{})})}catch(error){if(controller?.signal.aborted)throw Object.assign(new Error('The elevation provider did not respond before the request timed out.'),{code:'provider-timeout',retryable:true});throw Object.assign(new Error('The elevation provider could not be reached directly from this browser.'),{code:'cors-or-network',retryable:true,cause:String(error?.message||error)})}finally{if(timer)clearTimeout(timer)}
   if(!response?.ok)throw Object.assign(new Error(`The elevation provider returned HTTP ${response?.status||'unknown'}.`),{code:'provider-http',httpStatus:response?.status,retryable:response?.status===429||response?.status>=500});
   let payload;
   try{payload=await response.json()}catch{throw Object.assign(new Error('The elevation provider returned an unreadable response.'),{code:'provider-response',retryable:true})}
@@ -136,12 +136,14 @@ function costAdjustments(profile={}){
   if(observedSteep>0)add('Drainage / cut-and-fill exposure',[observedSteep*3,observedSteep*7,observedSteep*14]);
   return {basis:'Measured elevation',components:components.filter(component=>component.range.some(Boolean)),routeLengthFeet:length};
 }
-function parcelGeometryFingerprint(geometry){
-  const rings=geometry?.type==='Polygon'?geometry.coordinates:geometry?.type==='MultiPolygon'?geometry.coordinates.flat():[];
+function normalizeParcelGeometry(value){const shared=window.OTParcelIntelligence?.normalizeGeometry?.(value);if(shared)return shared;const geometry=value?.type==='Feature'?value.geometry:value;return ['Polygon','MultiPolygon'].includes(geometry?.type)&&Array.isArray(geometry.coordinates)?clone(geometry):null}
+function parcelGeometryFingerprint(value){
+  const geometry=normalizeParcelGeometry(value),rings=geometry?.type==='Polygon'?geometry.coordinates:geometry?.type==='MultiPolygon'?geometry.coordinates.flat():[];
   const text=rings.flat().map(pair=>`${Number(pair?.[1]).toFixed(6)},${Number(pair?.[0]).toFixed(6)}`).join('|');
   return text?`parcel-${hash(text)}-${rings.flat().length}`:'';
 }
-function parcelPolygons(geometry){
+function parcelPolygons(value){
+  const geometry=normalizeParcelGeometry(value);
   const raw=geometry?.type==='Polygon'?[geometry.coordinates]:geometry?.type==='MultiPolygon'?geometry.coordinates:[];
   return raw.map(polygon=>polygon.map(ring=>ring.map(pair=>({lat:Number(pair?.[1]),lng:Number(pair?.[0])})).filter(isPoint)).filter(ring=>ring.length>=3)).filter(polygon=>polygon[0]?.length>=3);
 }
@@ -157,14 +159,12 @@ function pointInParcel(value,polygons=[]){return polygons.some(polygon=>pointInR
 function sampleParcel(geometry,options={}){
   const polygons=parcelPolygons(geometry),all=polygons.flat(2),maxSamples=Math.max(9,Math.min(64,Math.floor(num(options.maxSamples)||49)));
   if(!all.length)return [];
-  const minLat=Math.min(...all.map(item=>item.lat)),maxLat=Math.max(...all.map(item=>item.lat)),minLng=Math.min(...all.map(item=>item.lng)),maxLng=Math.max(...all.map(item=>item.lng)),side=Math.max(3,Math.ceil(Math.sqrt(maxSamples*1.8))),latStep=(maxLat-minLat)/side,lngStep=(maxLng-minLng)/side,points=[];
-  for(let row=0;row<side;row++)for(let column=0;column<side;column++){
-    const candidate={lat:minLat+latStep*(row+.5),lng:minLng+lngStep*(column+.5),gridRow:row,gridColumn:column,gridMinLat:minLat,gridMinLng:minLng,gridLatStep:latStep,gridLngStep:lngStep,cellHalfLat:latStep/2,cellHalfLng:lngStep/2};
-    if(pointInParcel(candidate,polygons))points.push(candidate);
-  }
+  const minLat=Math.min(...all.map(item=>item.lat)),maxLat=Math.max(...all.map(item=>item.lat)),minLng=Math.min(...all.map(item=>item.lng)),maxLng=Math.max(...all.map(item=>item.lng)),initialSide=Math.max(3,Math.ceil(Math.sqrt(maxSamples*1.8)));let points=[];
+  for(let side=initialSide;side<=Math.max(initialSide,64);side=Math.min(64,side+Math.max(2,Math.floor(side/3)))){const latStep=(maxLat-minLat)/side,lngStep=(maxLng-minLng)/side,candidates=[];if(!latStep||!lngStep)break;for(let row=0;row<side;row++)for(let column=0;column<side;column++){const candidate={lat:minLat+latStep*(row+.5),lng:minLng+lngStep*(column+.5),gridRow:row,gridColumn:column,gridMinLat:minLat,gridMinLng:minLng,gridLatStep:latStep,gridLngStep:lngStep,cellHalfLat:latStep/2,cellHalfLng:lngStep/2};if(pointInParcel(candidate,polygons))candidates.push(candidate)}points=candidates;if(points.length>=5||side===64)break}
   /* Candidate geometry depends on a stable grid. Avoid injecting non-grid centroids here. */
   return points.slice(0,maxSamples);
 }
+function validateParcelSamples(value,points=[],options={}){const geometry=normalizeParcelGeometry(value),polygons=parcelPolygons(geometry),maximum=Math.max(9,Math.min(64,Math.floor(num(options.maxSamples)||49))),coordinates=polygons.flat(2),coordinateRangesValid=coordinates.length>0&&coordinates.every(point=>Number.isFinite(point.lat)&&Number.isFinite(point.lng)&&point.lat>=18&&point.lat<=72&&point.lng>=-180&&point.lng<=-66),samplesFinite=points.every(point=>Number.isFinite(point.lat)&&Number.isFinite(point.lng)),samplesInside=Boolean(polygons.length&&points.length)&&points.every(point=>pointInParcel(point,polygons)),bounded=points.length<=maximum;return {validGeometry:Boolean(geometry&&coordinateRangesValid),coordinateRangesValid,samplesFinite,samplesInside,bounded,sampleCount:points.length,maximumSampleCount:maximum,valid:Boolean(geometry&&coordinateRangesValid&&samplesFinite&&samplesInside&&bounded&&points.length>=5)}}
 function contiguousCandidateZones(samples=[],parcelAcreage=null){
   const gentle=samples.filter(sample=>sample.slopePct<=10);if(!gentle.length)return [];
   const nearest=gentle.map(sample=>Math.min(...gentle.filter(other=>other!==sample).map(other=>haversineFeet(sample,other)).filter(Boolean),Infinity)).filter(Number.isFinite).sort((a,b)=>a-b),spacing=nearest[Math.floor(nearest.length/2)]||250,threshold=spacing*1.65,unvisited=new Set(gentle),groups=[];
@@ -187,8 +187,9 @@ function summarizeParcelTerrain(points,elevations,details={}){
   return {success:true,analysisType:'parcel-terrain-screen',source:details.source||'provider',provider:details.provider||USGS_3DEP_PROVIDER.name,providerId:details.providerId||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:details.geometryFingerprint,parcelCertainty:details.parcelCertainty||'verified-parcel-polygon',confidence:details.confidence||'preliminary-provider-derived',sampleCount:samples.length,samples,minimumElevationFeet,maximumElevationFeet,reliefFeet:maximumElevationFeet-minimumElevationFeet,averageSlopePct:Number((samples.reduce((sum,item)=>sum+item.slopePct,0)/samples.length).toFixed(1)),maximumLocalSlopePct:Number(Math.max(...samples.map(item=>item.slopePct)).toFixed(1)),gradeBands,slopeBands,overallTerrainCharacter,candidateSamples,candidateZones,steepSamples,drainageCandidates,limitations:'Preliminary parcel-wide sample screening only. Candidate zones are not approved building sites and do not establish parcel boundaries, drainage engineering, septic suitability, or construction approval.'};
 }
 async function screenParcelTerrain(geometry,options={}){
-  const fingerprint=parcelGeometryFingerprint(geometry),points=sampleParcel(geometry,options),cacheKey=`${fingerprint}:parcel`;
-  if(!fingerprint||points.length<5)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:'parcel-geometry-invalid',message:'A verified parcel Polygon or MultiPolygon is required before terrain screening.',retryable:false}};
+  const normalized=normalizeParcelGeometry(geometry),fingerprint=parcelGeometryFingerprint(normalized),points=sampleParcel(normalized,options),validation=validateParcelSamples(normalized,points,options),cacheKey=`${fingerprint}:parcel`;
+  if(!validation.validGeometry)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',validation,failure:{code:'parcel-geometry-invalid',message:'The confirmed parcel boundary is not a valid U.S. Polygon or MultiPolygon.',retryable:false}};
+  if(!validation.valid)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',validation,failure:{code:'parcel-sampling-insufficient',message:'The parcel is valid, but a safe set of interior terrain sample points could not be created.',retryable:false}};
   const cached=cache.get(cacheKey);if(cached?.success)return {...clone(cached),cached:true};
   let elevations=[];
   if(typeof options.fixtureElevationFn==='function')elevations=points.map((value,index)=>Number(options.fixtureElevationFn(value,index,points)));
@@ -199,10 +200,10 @@ async function screenParcelTerrain(geometry,options={}){
     catch(error){return {success:false,analysisType:'parcel-terrain-screen',source:'provider',provider:provider.name||USGS_3DEP_PROVIDER.name,providerId:provider.id||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:error?.code||'provider-unavailable',message:error?.message||'Parcel elevations are unavailable.',retryable:!!error?.retryable}}}
   }
   if(elevations.some(value=>!Number.isFinite(value)))return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:'no-elevation',message:'The provider returned incomplete parcel elevations.',retryable:true}};
-  const fixture=typeof options.fixtureElevationFn==='function'||Array.isArray(options.fixtureElevations),screen=summarizeParcelTerrain(points,elevations,{source:fixture?'fixture':'provider',provider:fixture?'Fixture elevation provider':USGS_3DEP_PROVIDER.name,providerId:fixture?'fixture':USGS_3DEP_PROVIDER.id,geometryFingerprint:fingerprint,parcelCertainty:options.parcelCertainty,parcelAcreage:options.parcelAcreage,confidence:fixture?'test-fixture':'preliminary-provider-derived'});
-  cache.set(cacheKey,clone(screen));return screen;
+  const fixture=typeof options.fixtureElevationFn==='function'||Array.isArray(options.fixtureElevations),selectedProvider=options.provider||USGS_3DEP_PROVIDER,screen=summarizeParcelTerrain(points,elevations,{source:fixture?'fixture':'provider',provider:fixture?'Fixture elevation provider':selectedProvider.name||USGS_3DEP_PROVIDER.name,providerId:fixture?'fixture':selectedProvider.id||USGS_3DEP_PROVIDER.id,geometryFingerprint:fingerprint,parcelCertainty:options.parcelCertainty,parcelAcreage:options.parcelAcreage,confidence:fixture?'test-fixture':'preliminary-provider-derived'});
+  screen.validation=validation;cache.set(cacheKey,clone(screen));return screen;
 }
 function clearCache(){cache.clear()}
 window.OTElevation={USGS_3DEP_PROVIDER,geometryFingerprint,sampleRoute,getElevationProfile,manualElevationFallback,costAdjustments,clearCache,gradeBands:[{key:'gentle',label:'0–5% gentle'},{key:'moderate',label:'over 5–10% moderate'},{key:'steep',label:'over 10–15% steep'},{key:'very-steep',label:'over 15–20% very steep'},{key:'severe',label:'over 20% severe'}]};
-Object.assign(window.OTElevation,{parcelGeometryFingerprint,sampleParcel,screenParcelTerrain,contiguousCandidateZones});
+Object.assign(window.OTElevation,{normalizeParcelGeometry,parcelGeometryFingerprint,sampleParcel,validateParcelSamples,screenParcelTerrain,contiguousCandidateZones});
 })();
