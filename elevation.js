@@ -8,6 +8,7 @@
 const FEET_PER_MILE=5280;
 const DEFAULT_MAX_SAMPLES=96;
 const cache=new Map();
+const parcelSampleCache=new Map();
 const sleep=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
 const clone=value=>value==null?value:structuredClone(value);
 const num=value=>Number(value)||0;
@@ -186,24 +187,51 @@ function summarizeParcelTerrain(points,elevations,details={}){
   const steepPct=gradeBands.steep.percent+gradeBands['very-steep'].percent+gradeBands.severe.percent,overallTerrainCharacter=steepPct>=55?'Predominantly steep with localized usable areas':steepPct>=25?'Mixed terrain with meaningful steep areas and localized benches':'Mostly lower-slope samples with localized steeper areas';
   return {success:true,analysisType:'parcel-terrain-screen',source:details.source||'provider',provider:details.provider||USGS_3DEP_PROVIDER.name,providerId:details.providerId||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:details.geometryFingerprint,parcelCertainty:details.parcelCertainty||'verified-parcel-polygon',confidence:details.confidence||'preliminary-provider-derived',sampleCount:samples.length,samples,minimumElevationFeet,maximumElevationFeet,reliefFeet:maximumElevationFeet-minimumElevationFeet,averageSlopePct:Number((samples.reduce((sum,item)=>sum+item.slopePct,0)/samples.length).toFixed(1)),maximumLocalSlopePct:Number(Math.max(...samples.map(item=>item.slopePct)).toFixed(1)),gradeBands,slopeBands,overallTerrainCharacter,candidateSamples,candidateZones,steepSamples,drainageCandidates,limitations:'Preliminary parcel-wide sample screening only. Candidate zones are not approved building sites and do not establish parcel boundaries, drainage engineering, septic suitability, or construction approval.'};
 }
+function parcelSampleKey(point){return `${Number(point.lat).toFixed(7)},${Number(point.lng).toFixed(7)}`}
+function parcelSampleCacheRecord(propertyId,fingerprint,providerId,entries=[]){return {version:1,propertyId:String(propertyId||''),geometryFingerprint:fingerprint,providerId:String(providerId||''),updatedAt:new Date().toISOString(),samples:entries.map(entry=>({key:entry.key,lat:entry.lat,lng:entry.lng,elevationFeet:entry.elevationFeet,retrievedAt:entry.retrievedAt}))}}
+function acceptedStoredSamples(value={},propertyId='',fingerprint='',providerId=''){
+  if(!value||value.version!==1||String(value.propertyId||'')!==String(propertyId||'')||value.geometryFingerprint!==fingerprint||String(value.providerId||'')!==String(providerId||''))return [];
+  return (Array.isArray(value.samples)?value.samples:[]).filter(entry=>Number.isFinite(Number(entry?.lat))&&Number.isFinite(Number(entry?.lng))&&Number.isFinite(Number(entry?.elevationFeet))&&entry.key===parcelSampleKey(entry));
+}
+async function runBounded(items=[],limit=4,worker=async()=>{}){let cursor=0;async function next(){while(cursor<items.length){const index=cursor++;await worker(items[index],index)}}await Promise.all(Array.from({length:Math.min(limit,items.length)},next))}
 async function screenParcelTerrain(geometry,options={}){
-  const normalized=normalizeParcelGeometry(geometry),fingerprint=parcelGeometryFingerprint(normalized),points=sampleParcel(normalized,options),validation=validateParcelSamples(normalized,points,options),cacheKey=`${fingerprint}:parcel`;
+  const normalized=normalizeParcelGeometry(geometry),fingerprint=parcelGeometryFingerprint(normalized),points=sampleParcel(normalized,options),validation=validateParcelSamples(normalized,points,options);
   if(!validation.validGeometry)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',validation,failure:{code:'parcel-geometry-invalid',message:'The confirmed parcel boundary is not a valid U.S. Polygon or MultiPolygon.',retryable:false}};
   if(!validation.valid)return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',validation,failure:{code:'parcel-sampling-insufficient',message:'The parcel is valid, but a safe set of interior terrain sample points could not be created.',retryable:false}};
-  const cached=cache.get(cacheKey);if(cached?.success)return {...clone(cached),cached:true};
   let elevations=[];
   if(typeof options.fixtureElevationFn==='function')elevations=points.map((value,index)=>Number(options.fixtureElevationFn(value,index,points)));
   else if(Array.isArray(options.fixtureElevations)&&options.fixtureElevations.length===points.length)elevations=options.fixtureElevations.map(Number);
   else{
-    const provider=options.provider||{...USGS_3DEP_PROVIDER,getPointElevation:usgsPointElevation},getPointElevation=provider.getPointElevation||usgsPointElevation,throttleMs=Math.max(100,num(options.throttleMs)||160);
-    try{for(let index=0;index<points.length;index++){if(index)await sleep(throttleMs);elevations.push(await getPointElevation(points[index],options))}}
-    catch(error){return {success:false,analysisType:'parcel-terrain-screen',source:'provider',provider:provider.name||USGS_3DEP_PROVIDER.name,providerId:provider.id||USGS_3DEP_PROVIDER.id,retrievedAt:new Date().toISOString(),geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:error?.code||'provider-unavailable',message:error?.message||'Parcel elevations are unavailable.',retryable:!!error?.retryable}}}
+    const provider=options.provider||{...USGS_3DEP_PROVIDER,getPointElevation:usgsPointElevation},providerId=provider.id||USGS_3DEP_PROVIDER.id,providerName=provider.name||USGS_3DEP_PROVIDER.name,getPointElevation=provider.getPointElevation||usgsPointElevation,propertyId=String(options.propertyId||''),cacheKey=`${propertyId||'anonymous'}:${fingerprint}:${providerId}:parcel`,cached=cache.get(cacheKey);
+    if(cached?.success&&!cached.partial)return {...clone(cached),cached:true};
+    const completed=new Map(),sampleCachePrefix=`${propertyId||'anonymous'}:${fingerprint}:${providerId}:`,stored=acceptedStoredSamples(options.cachedSamples,propertyId,fingerprint,providerId);
+    stored.forEach(entry=>{completed.set(entry.key,clone(entry));parcelSampleCache.set(`${sampleCachePrefix}${entry.key}`,clone(entry))});
+    points.forEach(point=>{const key=parcelSampleKey(point),entry=parcelSampleCache.get(`${sampleCachePrefix}${key}`);if(entry&&Number.isFinite(Number(entry.elevationFeet)))completed.set(key,clone(entry))});
+    const concurrency=Math.max(1,Math.min(6,Math.floor(num(options.concurrency)||4))),maxRetries=Math.max(0,Math.min(2,Math.floor(Number(options.maxRetries)===0?0:num(options.maxRetries)||1))),backoffMs=Math.max(25,num(options.retryBackoffMs)||250),throttleMs=Math.max(0,Number.isFinite(Number(options.throttleMs))?Number(options.throttleMs):80),errors=new Map();
+    const progress=extra=>{try{options.onProgress?.({phase:'retrieving',total:points.length,successful:completed.size,failed:errors.size,...extra})}catch{}}
+    progress({attempt:0,cached:completed.size});
+    let pending=points.filter(point=>!completed.has(parcelSampleKey(point)));
+    for(let attempt=0;attempt<=maxRetries&&pending.length;attempt++){
+      if(attempt)await sleep(backoffMs*attempt);
+      const failed=[];
+      await runBounded(pending,concurrency,async(point,index)=>{
+        if(throttleMs&&index>=concurrency)await sleep(throttleMs);
+        const key=parcelSampleKey(point);
+        try{const value=Number(await getPointElevation(point,options));if(!Number.isFinite(value))throw Object.assign(new Error('The elevation provider returned no usable elevation for this parcel point.'),{code:'no-elevation',retryable:true});const entry={key,lat:point.lat,lng:point.lng,elevationFeet:value,retrievedAt:new Date().toISOString()};completed.set(key,entry);parcelSampleCache.set(`${sampleCachePrefix}${key}`,clone(entry));errors.delete(key)}catch(error){const failure={key,lat:point.lat,lng:point.lng,code:error?.code||'provider-unavailable',message:error?.message||'Parcel elevation is unavailable.',retryable:error?.retryable!==false,attempts:attempt+1};errors.set(key,failure);if(failure.retryable)failed.push(point)}finally{progress({attempt:attempt+1})}
+      });
+      pending=failed;
+    }
+    const successfulPoints=[],successfulElevations=[];points.forEach(point=>{const entry=completed.get(parcelSampleKey(point));if(entry){successfulPoints.push(point);successfulElevations.push(Number(entry.elevationFeet))}});
+    const sampleCache=parcelSampleCacheRecord(propertyId,fingerprint,providerId,[...completed.values()]),minimumSuccessRatio=Math.max(.5,Math.min(1,Number(options.minimumSuccessRatio)||.75)),minimumSamples=Math.max(5,Math.ceil(points.length*minimumSuccessRatio)),failedSamples=points.filter(point=>!completed.has(parcelSampleKey(point))).map(point=>errors.get(parcelSampleKey(point))||{key:parcelSampleKey(point),lat:point.lat,lng:point.lng,code:'provider-unavailable',message:'Parcel elevation is unavailable.',retryable:true}),coveragePct=Number((successfulPoints.length/points.length*100).toFixed(1));
+    if(successfulPoints.length<minimumSamples){const providerFailure=successfulPoints.length===0?failedSamples[0]:null,code=providerFailure?.code||'insufficient-terrain-coverage',message=successfulPoints.length?`Only ${successfulPoints.length} of ${points.length} terrain samples were retrieved; at least ${minimumSamples} are required for a reliable preliminary screen.`:(providerFailure?.message||'Parcel elevations are unavailable.');return {success:false,analysisType:'parcel-terrain-screen',source:'provider',provider:providerName,providerId,retrievedAt:new Date().toISOString(),geometryFingerprint:fingerprint,confidence:'unavailable',requestedSampleCount:points.length,sampleCount:successfulPoints.length,failedSampleCount:failedSamples.length,sampleCoveragePct:coveragePct,sampleCache,failedSamples,failure:{code,message,retryable:failedSamples.some(item=>item.retryable)}}}
+    const screen=summarizeParcelTerrain(successfulPoints,successfulElevations,{source:'provider',provider:providerName,providerId,geometryFingerprint:fingerprint,parcelCertainty:options.parcelCertainty,parcelAcreage:options.parcelAcreage,confidence:failedSamples.length?'partial-provider-derived':'preliminary-provider-derived'});
+    Object.assign(screen,{validation,requestedSampleCount:points.length,failedSampleCount:failedSamples.length,sampleCoveragePct:coveragePct,partial:failedSamples.length>0,coverageStatus:failedSamples.length?'partial':'complete',failedSamples,sampleCache,concurrency,maxRetries});if(!screen.partial)cache.set(cacheKey,clone(screen));return screen;
   }
   if(elevations.some(value=>!Number.isFinite(value)))return {success:false,analysisType:'parcel-terrain-screen',geometryFingerprint:fingerprint,confidence:'unavailable',failure:{code:'no-elevation',message:'The provider returned incomplete parcel elevations.',retryable:true}};
   const fixture=typeof options.fixtureElevationFn==='function'||Array.isArray(options.fixtureElevations),selectedProvider=options.provider||USGS_3DEP_PROVIDER,screen=summarizeParcelTerrain(points,elevations,{source:fixture?'fixture':'provider',provider:fixture?'Fixture elevation provider':selectedProvider.name||USGS_3DEP_PROVIDER.name,providerId:fixture?'fixture':selectedProvider.id||USGS_3DEP_PROVIDER.id,geometryFingerprint:fingerprint,parcelCertainty:options.parcelCertainty,parcelAcreage:options.parcelAcreage,confidence:fixture?'test-fixture':'preliminary-provider-derived'});
-  screen.validation=validation;cache.set(cacheKey,clone(screen));return screen;
+  Object.assign(screen,{validation,requestedSampleCount:points.length,failedSampleCount:0,sampleCoveragePct:100,partial:false,coverageStatus:'complete'});return screen;
 }
-function clearCache(){cache.clear()}
+function clearCache(){cache.clear();parcelSampleCache.clear()}
 window.OTElevation={USGS_3DEP_PROVIDER,geometryFingerprint,sampleRoute,getElevationProfile,manualElevationFallback,costAdjustments,clearCache,gradeBands:[{key:'gentle',label:'0–5% gentle'},{key:'moderate',label:'over 5–10% moderate'},{key:'steep',label:'over 10–15% steep'},{key:'very-steep',label:'over 15–20% very steep'},{key:'severe',label:'over 20% severe'}]};
 Object.assign(window.OTElevation,{normalizeParcelGeometry,parcelGeometryFingerprint,sampleParcel,validateParcelSamples,screenParcelTerrain,contiguousCandidateZones});
 })();
